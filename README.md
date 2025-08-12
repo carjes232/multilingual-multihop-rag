@@ -1,78 +1,197 @@
 # Multilingual Multi‑Hop RAG (ES/PT/EN)
 
-This is my personal project to build a local‑first RAG system that can answer questions in Spanish, Portuguese, and English. It retrieves from a Postgres+pgvector database, embeds with **BGE‑M3** on my RTX 3060, and will eventually do multi‑hop reasoning.
+Local‑first RAG with Postgres + pgvector, BGE‑M3 embeddings on GPU, entity‑aware multi‑query retrieval, and robust Ollama integration. Evaluated across multiple local LLMs with side‑by‑side RAG vs No‑RAG plots.
 
 ---
 
-## What I’ve got working so far
-
-* **Chunking:** Took a slice of HotpotQA, split into `documents.jsonl` and `chunks.jsonl` with deduplication and word overlap.
-* **Database:** Postgres running in Docker with **pgvector**.
-* **Loading:** A script to create tables and bulk‑load the JSONL files.
-* **Embedding:** Another script that runs **BAAI/bge‑m3** on GPU, normalizes the embeddings, and stores them in the DB.
-* **Validation:** All chunks now have embeddings, and the L2 norms are \~1.0.
+Highlights
+- Dense retrieval over pgvector HNSW (cosine), normalized embeddings
+- Entity‑aware multi‑query retrieval and prompt builder
+- Robust short‑answer extraction from reasoning models with “think”‑stripping
+- Multilingual ready (ES/PT/EN) via BGE‑M3
+- Multi‑model evaluation and plots; error artifacts for deep dives
 
 ---
 
-## Folder structure
+Architecture
 
+```mermaid
+graph LR
+  A[HotpotQA JSONL] --> B[Chunker with overlap and dedupe]
+  B --> C[Postgres/pgvector]
+  C --> D[HNSW index - cosine]
+  Q[User question ES/PT/EN] --> M[Entity-aware multi-query]
+  M --> R[Retriever - dense]
+  R --> X[Reranker or MMR - planned]
+  X --> P[Prompt builder]
+  P --> L[Ollama LLM]
+  L --> ANS[Short answer + citations - planned]
+  R --> E[Evals - RAG vs No-RAG]
 ```
-runtime/
-  data/raw/hotpot/        # HotpotQA slice
-  staging/
-    documents.jsonl
-    chunks.jsonl
-scripts/
-  01_download_hotpot.py
-  02_chunk_hotpot.py
-  03_load_docs_chunks.py
-  04_embed_chunks.py
-```
 
 ---
 
-## How I run it
+Repository structure
 
-### 0) Download the data
+- runtime/
+  - data/raw/hotpot/
+  - staging/
+  - evals_multi/
+- scripts/
+  - Data pipeline: [scripts/01_download_hotpot.py](scripts/01_download_hotpot.py), [scripts/02_chunk_hotpot.py](scripts/02_chunk_hotpot.py), [scripts/03_load_docs_chunks.py](scripts/03_load_docs_chunks.py), [scripts/04_embed_chunks.py](scripts/04_embed_chunks.py), [scripts/05_create_vector_index.sql](scripts/05_create_vector_index.sql)
+  - API: [scripts/api.py](scripts/api.py)
+  - Evaluation: [scripts/eval_models.py](scripts/eval_models.py), [scripts/eval_answers.py](scripts/eval_answers.py), [scripts/eval_retrieval.py](scripts/eval_retrieval.py)
+  - Tools: [scripts/search.py](scripts/search.py), [scripts/nvidia_verify.py](scripts/nvidia_verify.py)
 
+---
+
+Quickstart
+
+1) Install
+- Python 3.10+, CUDA‑capable GPU recommended
+- Postgres with pgvector (Docker OK)
+- Ollama with local models installed (e.g., qwen3:4b, qwen3:8b, gemma3:1b, gemma3:4b, deepseek-r1:8b)
+
+2) Python dependencies
+```bash
+pip install -r requirements.txt
+```
+
+3) Download Hotpot slice
 ```bash
 python scripts/01_download_hotpot.py
 ```
 
-### 1) Chunk the data
-
+4) Chunk and stage
 ```bash
 python scripts/02_chunk_hotpot.py
 ```
 
-### 2) Load into Postgres
-
+5) Load into Postgres
 ```bash
 python scripts/03_load_docs_chunks.py
 ```
 
-### 3) Embed the chunks
+6) Create vector index (HNSW)
+```bash
+psql -h localhost -p 5432 -U rag -d ragdb -f scripts/05_create_vector_index.sql
+```
 
+7) Embed on GPU (normalized BGE‑M3)
 ```bash
 python scripts/04_embed_chunks.py
 ```
 
-At the end I check:
-
-* All embeddings filled
-* Norms around 1.0
-
----
-
-## Next steps
-
-1. Build an HNSW index for fast cosine search.
-2. Make a small `/search` endpoint to try dense retrieval.
-3. Add BM25 + RRF for hybrid search.
-4. Add a reranker.
-5. Build `/answer` that does multi‑hop retrieval with citations.
-6. Add evaluation with RAGAS.
+8) Run API (FastAPI)
+```bash
+uvicorn scripts.api:app --reload --port 8000
+# Health
+curl http://127.0.0.1:8000/health
+```
 
 ---
 
-**Current status:** Chunking, loading, and embedding are done. Dense search is next.
+API
+
+- Health: [python.health()](scripts/api.py:99) → GET /health
+- Dense search: [python.search()](scripts/api.py:116) → GET /search?q=...&k=5
+- RAG answer (entity‑aware multi‑query + robust Ollama): [python.answer()](scripts/api.py:363)
+
+Example
+```bash
+curl "http://127.0.0.1:8000/search?q=Where%20is%20the%20Random%20House%20Tower%20located%3F&k=5"
+curl "http://127.0.0.1:8000/answer?q=Which%20city%20hosts%20the%20Random%20House%20Tower%3F&k=4&model=qwen3:8b"
+```
+
+Internals
+- Entity extraction: [python.extract_entities()](scripts/api.py:61)
+- Multi‑query retrieval merge: [python.search_multi()](scripts/api.py:126)
+- Prompt builder: [python.build_prompt()](scripts/api.py:340)
+- Robust Ollama call: [python.call_ollama()](scripts/api.py:258)
+- FastAPI app instance: [python.app](scripts/api.py:31)
+
+---
+
+CLI search
+```bash
+python scripts/search.py "Where is the Random House Tower located?" --k 5
+```
+Entry point: [python.main()](scripts/search.py:81)
+
+---
+
+Evaluation
+
+Multi‑model RAG vs No‑RAG
+```bash
+python scripts/eval_models.py --file runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl \
+  --sample 100 --models qwen3:4b,gemma3:1b,gemma3:4b,deepseek-r1:8b --write-errors
+```
+Entry point: [python.main()](scripts/eval_models.py:299)
+
+Retrieval recall@k
+```bash
+python scripts/eval_retrieval.py --k 5 --limit 50 --file runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl
+```
+Entry point: [python.main()](scripts/eval_retrieval.py:67)
+
+RAG vs No‑RAG (single model convenience)
+```bash
+uvicorn scripts.api:app --port 8000
+python scripts/eval_answers.py --limit 50 --k 4 --model qwen3:8b \
+  --file runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl
+```
+Script: [scripts/eval_answers.py](scripts/eval_answers.py)
+
+---
+
+Results (sample plots)
+
+Exact Match (RAG vs No‑RAG)
+![Exact Match](runtime/evals_multi/em.png)
+
+F1 (RAG vs No‑RAG)
+![F1](runtime/evals_multi/f1.png)
+
+Latency p50
+![Latency p50](runtime/evals_multi/latency_p50.png)
+
+EM breakdown (counts)
+![EM breakdown](runtime/evals_multi/em_breakdown.png)
+
+F1 gain histogram (RAG − No‑RAG)
+![F1 gain histogram](runtime/evals_multi/f1_gain_hist.png)
+
+Per‑model F1 gains
+![F1 gain qwen3:4b](runtime/evals_multi/f1_gain_qwen3_4b.png)
+![F1 gain qwen3:8b](runtime/evals_multi/f1_gain_qwen3_8b.png)
+![F1 gain gemma3:1b](runtime/evals_multi/f1_gain_gemma3_1b.png)
+![F1 gain gemma3:4b](runtime/evals_multi/f1_gain_gemma3_4b.png)
+![F1 gain deepseek-r1:8b](runtime/evals_multi/f1_gain_deepseek-r1_8b.png)
+
+Aggregate CSV
+- [runtime/evals_multi/model_summaries.csv](runtime/evals_multi/model_summaries.csv)
+
+---
+
+Design choices
+- BGE‑M3 for multilingual embeddings (ES/PT/EN), normalized vectors
+- pgvector HNSW for cosine; SKIP LOCKED windowing for safe parallel embedding
+- Entity‑aware multi‑query retrieval to improve recall on multi‑hop questions
+- Robust short‑answer extraction from Ollama outputs (schema + heuristic)
+
+---
+
+Roadmap (planned next)
+- Hybrid retrieval: add BM25 + RRF blending
+- Cross‑encoder reranker with optional MMR
+- Citations in /answer and abstention on low evidence
+- Streamlit demo UI with screenshots/gif
+- Docker Compose (pgvector + API), connection pooling, structured logs
+- RAGAS metrics; multilingual eval slice
+
+---
+
+Acknowledgments
+- HotpotQA dataset
+- pgvector, FastAPI, Ollama, SentenceTransformers, BGE‑M3

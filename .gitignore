@@ -1,4 +1,61 @@
+# Large line-delimited data files (kept out of repo by default)
 *.jsonl
+
+# Repo tooling
 .repo-to-text-settings.yaml
+
+# Python artifacts
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtualenvs and local env files
 .venv/
+.env
+.env.*
+!.env.example
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Caches
+.cache/
+**/.cache/
+
+# ----------------------------
+# Runtime data and logs
+# ----------------------------
+
+# Raw datasets and staging artifacts (keep placeholders)
+runtime/data/raw/*
+!runtime/data/raw/.gitkeep
+
+runtime/data/staging/*
+!runtime/data/staging/.gitkeep
+
+runtime/staging/*
+!runtime/staging/.gitkeep
+
+# Logs
+runtime/logs/*
+!runtime/logs/.gitkeep
+runtime/logs/ingestion/*
+!runtime/logs/ingestion/.gitkeep
+
+# Evals: keep plots and summary CSVs for README; ignore heavy JSON/JSONL
+runtime/evals_multi/*
+!runtime/evals_multi/*.png
+!runtime/evals_multi/*.csv
+!runtime/evals_multi/*.md
+
+# Optional: local Postgres volumes (if you add them later)
+pgdata/
+postgres-data/
