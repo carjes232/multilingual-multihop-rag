@@ -1,0 +1,5 @@
+model,n,em_rag,f1_rag,p50_rag_ms,p95_rag_ms,em_norag,f1_norag,p50_norag_ms,p95_norag_ms,em_rag_only,em_norag_only,em_both_true,em_both_false,f1_gain_avg,f1_gain_median,f1_gain_pos,f1_gain_neg,f1_gain_zero
+qwen3:4b,10,0.0,0.147,507,7118,0.0,0.267,1000,1000,0,0,0,10,-0.12,0.0,1,3,6
+gemma3:1b,10,0.2,0.275,728,2282,0.1,0.137,1000,1000,2,1,0,7,0.138,0.0,3,1,6
+gemma3:4b,10,0.4,0.561,929,7953,0.1,0.249,1000,1000,3,0,1,6,0.312,0.0,4,1,5
+deepseek-r1:8b,10,0.0,0.246,1505,8703,0.0,0.085,1000,1000,0,0,0,10,0.161,0.0,3,2,5
