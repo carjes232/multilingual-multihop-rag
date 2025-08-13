@@ -129,11 +129,32 @@ python scripts/eval_models.py --file runtime/data/raw/hotpot/hotpot_validation_1
 ```
 Entry point: [python.main()](scripts/eval_models.py:299)
 
+Online (OpenRouter) RAG vs No‑RAG
+```bash
+# 1) Put your OpenRouter key in .env (see .env.example)
+# 2) Run the online evaluator across several hosted models
+python scripts/eval_models_online.py \
+  --file runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl \
+  --sample 50 --k 4 \
+  --models "google/gemini-2.0-flash-001,google/gemini-2.5-flash,deepseek/deepseek-chat-v3-0324:free,qwen/qwen3-30b-a3b" \
+  --out-dir runtime/evals_multi --write-errors
+```
+Outputs mirror the local evaluator (CSV + plots), with files suffixed `_online`.
+
 Retrieval recall@k
 ```bash
 python scripts/eval_retrieval.py --k 5 --limit 50 --file runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl
 ```
 Entry point: [python.main()](scripts/eval_retrieval.py:67)
+
+Plots (recall curves and diagnostics)
+```bash
+# Generates recall_vs_k.png, hit_rank_hist.png, avg_times_ms.png
+python scripts/eval_retrieval.py \
+  --k-list 1,5,10 --limit 200 \
+  --plot-out runtime/evals_multi/retrieval --save-csv \
+  --file runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl
+```
 
 RAG vs No‑RAG (single model convenience)
 ```bash
@@ -168,6 +189,34 @@ Per‑model F1 gains
 ![F1 gain gemma3:1b](runtime/evals_multi/f1_gain_gemma3_1b.png)
 ![F1 gain gemma3:4b](runtime/evals_multi/f1_gain_gemma3_4b.png)
 ![F1 gain deepseek-r1:8b](runtime/evals_multi/f1_gain_deepseek-r1_8b.png)
+
+Retrieval (Recall@k)
+![Recall@k](runtime/evals_multi/retrieval/recall_vs_k.png)
+
+Multilingual retrieval (EN/ES/PT)
+```bash
+# Check cross-lingual retrieval consistency via Jaccard overlap
+python scripts/eval_multilingual_retrieval.py \
+  --k 5 --limit 3 \
+  --out-dir runtime/evals_multi/retrieval --save-csv
+```
+Plot: ![Multilingual Overlap](runtime/evals_multi/retrieval/multilingual_overlap.png)
+
+Multilingual eval set (10 examples)
+```bash
+# 1) Ensure you have OPENROUTER_API_KEY in .env
+# 2) Generate a 10-example multilingual JSONL (EN/ES/PT per example)
+python scripts/make_multilingual_eval_set.py \
+  --in-file runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl \
+  --out-file runtime/data/raw/hotpot/hotpot_multilingual_10.jsonl \
+  --n 10 --seed 42 --model google/gemini-2.0-flash-001
+
+# 3) Use this file for retrieval and answer evaluations (works with existing scripts)
+python scripts/eval_retrieval.py --k 5 --limit 30 --file runtime/data/raw/hotpot/hotpot_multilingual_10.jsonl
+python scripts/eval_models_online.py --file runtime/data/raw/hotpot/hotpot_multilingual_10.jsonl \
+  --sample 30 --k 4 --models "google/gemini-2.0-flash-001,google/gemini-2.5-flash,deepseek/deepseek-chat-v3-0324:free,qwen/qwen3-30b-a3b" \
+  --out-dir runtime/evals_multi --write-errors
+```
 
 Aggregate CSV
 - [runtime/evals_multi/model_summaries.csv](runtime/evals_multi/model_summaries.csv)

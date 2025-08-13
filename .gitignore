@@ -51,10 +51,9 @@ runtime/logs/ingestion/*
 !runtime/logs/ingestion/.gitkeep
 
 # Evals: keep plots and summary CSVs for README; ignore heavy JSON/JSONL
-runtime/evals_multi/*
-!runtime/evals_multi/*.png
-!runtime/evals_multi/*.csv
-!runtime/evals_multi/*.md
+runtime/evals_multi/*json*
+runtime/evals_multi/retrieval/*json*
+
 
 # Optional: local Postgres volumes (if you add them later)
 pgdata/
