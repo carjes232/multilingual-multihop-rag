@@ -25,7 +25,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from scripts.api import search_multi
+from api import search_multi
 
 
 def jaccard(a: List[str], b: List[str]) -> float:

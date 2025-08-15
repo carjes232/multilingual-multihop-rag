@@ -37,3 +37,4 @@ urllib3==2.5.0
 uvicorn[standard]
 matplotlib==3.8.4
 python-dotenv==1.0.1
+pinecone==7.3.0

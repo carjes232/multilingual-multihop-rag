@@ -42,6 +42,9 @@ Repository structure
   - API: [scripts/api.py](scripts/api.py)
   - Evaluation: [scripts/eval_models.py](scripts/eval_models.py), [scripts/eval_answers.py](scripts/eval_answers.py), [scripts/eval_retrieval.py](scripts/eval_retrieval.py)
   - Tools: [scripts/search.py](scripts/search.py), [scripts/nvidia_verify.py](scripts/nvidia_verify.py)
+  - Backends: [scripts/retriever.py](scripts/retriever.py)
+  - Embedder: [scripts/embedder.py](scripts/embedder.py)
+  - Pinecone upsert: [scripts/04b_upsert_chunks_pinecone.py](scripts/04b_upsert_chunks_pinecone.py)
 
 ---
 
@@ -117,6 +120,27 @@ CLI search
 python scripts/search.py "Where is the Random House Tower located?" --k 5
 ```
 Entry point: [python.main()](scripts/search.py:81)
+
+Pinecone backend (optional)
+- Choose Pinecone embeddings and retriever via env (see `.env.example`):
+  - `EMBEDDING_BACKEND=pinecone`
+  - `EMBEDDING_MODEL=multilingual-e5-large`
+  - `RETRIEVER_BACKEND=pinecone`
+- Upsert vectors to Pinecone from Postgres (uses Pinecone Inference to embed):
+```bash
+export PINECONE_API_KEY=...   # or set in .env
+export EMBEDDING_BACKEND=pinecone EMBEDDING_MODEL=multilingual-e5-large
+export RETRIEVER_BACKEND=pinecone PINECONE_INDEX=rag-chunks-e5-multilingual
+python scripts/04b_upsert_chunks_pinecone.py --create-index --batch 96 --limit 0
+# Note: The script auto sub-batches upserts (default max 96). Override via PINECONE_MAX_BATCH if needed.
+```
+- Now CLI and API will use Pinecone automatically:
+```bash
+EMBEDDING_BACKEND=pinecone RETRIEVER_BACKEND=pinecone \
+  python scripts/search.py "Where is the Random House Tower located?" --k 5
+EMBEDDING_BACKEND=pinecone RETRIEVER_BACKEND=pinecone \
+  uvicorn scripts.api:app --reload --port 8000  # /search and /answer use Pinecone
+```
 
 ---
 
