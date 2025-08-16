@@ -11,17 +11,20 @@ from typing import List, Tuple, Optional, Iterable
 import re, json, time
 
 import numpy as np
-import psycopg2
-from psycopg2 import sql
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
-import torch
 import requests
+import os
+
+try:
+    from . import retriever as retr  # type: ignore
+    from . import embedder as emb  # type: ignore
+except Exception:  # pragma: no cover
+    import retriever as retr  # type: ignore
+    import embedder as emb  # type: ignore
 
 # -------- Config --------
-DB = dict(host="localhost", port=5432, dbname="ragdb", user="rag", password="rag")
-MODEL_NAME = "BAAI/bge-m3"
+MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
 
 OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 OLLAMA_GEN_URL  = "http://127.0.0.1:11434/api/generate"
@@ -29,19 +32,39 @@ OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 
 # -------- App state --------
 app = FastAPI(title="RAG Search API")
-_model: Optional[SentenceTransformer] = None
+_model = None  # only for local embeddings
+_retr: Optional[object] = None
 
 # -------- Utilities --------
 def vec_to_pgvector(v: np.ndarray) -> str:
+    # kept for compatibility; not used by Pinecone
     return "[" + ",".join(f"{x:.6f}" for x in v.tolist()) + "]"
 
-def ensure_model() -> SentenceTransformer:
+def ensure_model():
+    # Only load local model when needed; prefer embedder's loader so that
+    # model ids are normalized (e.g., multilingual-e5-large -> intfloat/...) and
+    # E5 handling stays consistent across modules.
     global _model
-    if _model is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        _model = SentenceTransformer(MODEL_NAME, device=device)
-        print(f"Model loaded: {MODEL_NAME} | CUDA: {torch.cuda.is_available()} | Device: {_model.device}")
+    if emb.get_backend() == "local" and _model is None:
+        try:
+            _model = emb._ensure_local_model()  # type: ignore[attr-defined]
+            try:
+                import torch  # local import for device readout
+                dev = getattr(_model, 'device', 'cpu')
+                print(f"Model loaded via embedder: {emb.get_model_name()} | CUDA: {getattr(torch, 'cuda', None) and torch.cuda.is_available()} | Device: {dev}")
+            except Exception:
+                pass
+        except Exception as e:
+            _model = None
+            print(f"[warn] Local embedder model not loaded: {e}")
     return _model
+
+def ensure_retriever():
+    global _retr
+    if _retr is None:
+        _retr = retr.make_retriever()
+        print(f"Retriever backend: {retr.get_backend()}")
+    return _retr
 
 def is_yesno_question(q: str) -> bool:
     q = (q or "").strip().lower()
@@ -94,33 +117,21 @@ class SearchHit(BaseModel):
 class AnswerResponse(BaseModel):
     answer: str
     hits: List[SearchHit]
+    citations: List[int]
     latency_ms: int
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-# -------- Low-level PG search --------
-def _pg_search(cur, qvec_text: str, k: int) -> List[tuple]:
-    query = sql.SQL("""
-        SELECT id, doc_id, title, text, 1 - (embedding <=> {q}::vector) AS score
-        FROM chunks
-        WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> {q}::vector
-        LIMIT {k}
-    """).format(q=sql.Literal(qvec_text), k=sql.Literal(k))
-    cur.execute(query)
-    return cur.fetchall()
-
 # -------- Public /search (single-query, unchanged) --------
 @app.get("/search", response_model=List[SearchHit])
 def search(q: str = Query(...), k: int = Query(5, ge=1, le=50)):
     model = ensure_model()
-    qvec = model.encode([q], normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=False)[0]
-    qvec_text = vec_to_pgvector(qvec)
-    with psycopg2.connect(**DB) as conn, conn.cursor() as cur:
-        rows = _pg_search(cur, qvec_text, k)
-    return [SearchHit(id=r[0], doc_id=r[1], title=r[2], text=r[3], score=float(r[4])) for r in rows]
+    r = ensure_retriever()
+    batches = r.search(model, [q], k)  # retriever embeds via env-gated embedder
+    hits = batches[0] if batches else []
+    return [SearchHit(id=h.id, doc_id=h.doc_id, title=h.title, text=h.text, score=h.score) for h in hits]
 
 # -------- Internal: multi-query retrieval --------
 def search_multi(question: str, k: int, k_per_entity: int = 3, max_pool: int = 24) -> List[SearchHit]:
@@ -131,31 +142,22 @@ def search_multi(question: str, k: int, k_per_entity: int = 3, max_pool: int = 2
     merge by id keeping the best score, re-rank, then return ONLY top-k.
     """
     model = ensure_model()
+    r = ensure_retriever()
     queries: List[tuple[str,int]] = [(question, max(2, k))]  # ensure at least 2 from the full question
     # entity queries (cap to avoid over-encoding)
     ents = extract_entities(question)[:6]
     for e in ents:
         queries.append((e, k_per_entity))
 
-    # encode all queries
-    texts = [q for q,_ in queries]
-    vecs = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=False)
-    vec_texts = [vec_to_pgvector(v) for v in vecs]
+    # run backend per-query with its desired k
+    batches: List[List[retr.Hit]] = []
+    for qtxt, kk in queries:
+        res = r.search(model, [qtxt], kk)
+        batches.extend(res)
 
-    pooled: dict[str, tuple] = {}
-    with psycopg2.connect(**DB) as conn, conn.cursor() as cur:
-        for (qtxt, _k), vtxt in zip(queries, vec_texts):
-            rows = _pg_search(cur, vtxt, _k)
-            for r in rows:
-                rid = r[0]
-                prev = pooled.get(rid)
-                if (not prev) or (float(r[4]) > float(prev[4])):  # keep highest score
-                    pooled[rid] = r
-
-    # sort by score desc and clip to top-k (but don't exceed a modest pool)
-    rows_sorted = sorted(pooled.values(), key=lambda r: float(r[4]), reverse=True)[:max_pool]
-    final_rows = rows_sorted[:k]
-    return [SearchHit(id=r[0], doc_id=r[1], title=r[2], text=r[3], score=float(r[4])) for r in final_rows]
+    pooled = retr.pool_and_rerank(batches, top_k=k, max_pool=max_pool)
+    final_rows = pooled[:k]
+    return [SearchHit(id=h.id, doc_id=h.doc_id, title=h.title, text=h.text, score=h.score) for h in final_rows]
 
 # -------- Think stripping & parsing --------
 _THINK_ANY = re.compile(r"(?is)<\s*(think|thought|thinking)\b[^>]*>.*?<\s*/\s*\1\s*>")
@@ -214,6 +216,32 @@ def _extract_final_short(s: str, max_words: int = 8) -> str:
         if out and not out.lower().startswith("<think"):
             return out
     return " ".join(re.split(r"\s+", t)[:max_words]).strip()
+
+
+def compute_citations(answer: str, hits: List[SearchHit]) -> List[int]:
+    """Return 1-based indices of sources that contain the answer span.
+    Case-insensitive substring match on hit.text. Deduplicate and cap to 3.
+    """
+    ans = (answer or "").strip().lower()
+    if not ans or ans in {"yes", "no", "unknown"}:
+        return []
+    out: list[int] = []
+    for i, h in enumerate(hits, 1):
+        try:
+            if ans and ans in (h.text or "").lower():
+                out.append(i)
+        except Exception:
+            continue
+        if len(out) >= 3:
+            break
+    # Dedup while keeping order
+    seen: set[int] = set()
+    uniq = []
+    for idx in out:
+        if idx not in seen:
+            seen.add(idx)
+            uniq.append(idx)
+    return uniq
 
 # -------- Ollama helpers --------
 def _chat(payload: dict, timeout: int) -> Tuple[bool, dict, str]:
@@ -387,7 +415,16 @@ def answer(
     ans = call_ollama(model=model, prompt=prompt, temperature=temperature, max_tokens=max_tokens)
     ms = int((time.time() - t0) * 1000)
 
+    # Abstention logic: if no informative span is found in any source and top score is weak.
+    top_score = max((h.score for h in search_hits), default=0.0)
+    yn = is_yesno_question(q)
+    cits = compute_citations(ans, search_hits)
+    min_top = float(os.getenv("ANSWER_MIN_TOP_SCORE", "0.30"))
+    if (not yn) and (not cits) and (top_score < min_top):
+        ans = "unknown"
+        cits = []
+
     if not ans.strip():
         ans = "unknown"
 
-    return AnswerResponse(answer=ans, hits=search_hits, latency_ms=ms)
+    return AnswerResponse(answer=ans, hits=search_hits, citations=cits, latency_ms=ms)
