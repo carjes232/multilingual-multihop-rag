@@ -87,14 +87,18 @@ def main():
 
     pc = Pinecone(api_key=api_key)
     if args.create_index:
+        # Normalize common aliases for E5 model name
+        em = (os.getenv("EMBEDDING_MODEL", "multilingual-e5-large") or "").strip()
+        if em.lower() in {"intfloat/multilingual-e5-large", "e5-multilingual-large"}:
+            em = "multilingual-e5-large"
         try:
-            ensure_pinecone_index(pc, args.index, source_model=os.getenv("EMBEDDING_MODEL", "multilingual-e5-large"), dimension=None)
+            ensure_pinecone_index(pc, args.index, source_model=em, dimension=None)
         except TypeError:
             # Older SDK: fall back to classical index creation
             ensure_pinecone_index(pc, args.index, source_model=None, dimension=EMBED_DIM_DEFAULT)
     index = pc.Index(args.index)
 
-    # Pinecone service imposes a maximum records-per-upsert; enforce a safe ceiling.
+    # Pinecone service imposes a maximum vectors-per-upsert; enforce a safe ceiling.
     # Default to 96 unless overridden by env var.
     try:
         max_upsert = int(os.getenv("PINECONE_MAX_BATCH", "96"))
@@ -132,16 +136,14 @@ def main():
 
         # Prefer integrated upsert when available
         if hasattr(index, "upsert_records"):
-            # Pinecone Inference integrated path: send text and flatten metadata fields at top-level.
-            # Some deployments reject nested objects at key 'metadata'; keep only primitives.
             records = []
             for i in range(len(ids)):
-                rec = {"id": ids[i], "text": texts[i]}
+                md = {}
                 if titles[i] is not None:
-                    rec["title"] = titles[i]
+                    md["title"] = titles[i]
                 if doc_ids[i] is not None:
-                    rec["doc_id"] = doc_ids[i]
-                records.append(rec)
+                    md["doc_id"] = doc_ids[i]
+                records.append({"id": ids[i], "text": texts[i], "metadata": md})
 
             ns = os.getenv("PINECONE_NAMESPACE", None)
             for j in range(0, len(records), max_upsert):
@@ -149,8 +151,7 @@ def main():
                 index.upsert_records(namespace=ns, records=chunk)
         else:
             # Fallback: embed locally (same model name) and upsert vectors
-            from embedder import embed as embed_fn  # local ST fallback
-            vecs = embed_fn(texts, purpose="passage")
+            vecs = emb.embed(texts, purpose="passage")
             vectors = []
             for i in range(len(ids)):
                 md = {"text": texts[i]}

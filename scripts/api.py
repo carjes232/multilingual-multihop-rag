@@ -16,8 +16,12 @@ from pydantic import BaseModel
 import requests
 import os
 
-import retriever as retr
-import embedder as emb
+try:
+    from . import retriever as retr  # type: ignore
+    from . import embedder as emb  # type: ignore
+except Exception:  # pragma: no cover
+    import retriever as retr  # type: ignore
+    import embedder as emb  # type: ignore
 
 # -------- Config --------
 MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
@@ -113,6 +117,7 @@ class SearchHit(BaseModel):
 class AnswerResponse(BaseModel):
     answer: str
     hits: List[SearchHit]
+    citations: List[int]
     latency_ms: int
 
 @app.get("/health")
@@ -211,6 +216,32 @@ def _extract_final_short(s: str, max_words: int = 8) -> str:
         if out and not out.lower().startswith("<think"):
             return out
     return " ".join(re.split(r"\s+", t)[:max_words]).strip()
+
+
+def compute_citations(answer: str, hits: List[SearchHit]) -> List[int]:
+    """Return 1-based indices of sources that contain the answer span.
+    Case-insensitive substring match on hit.text. Deduplicate and cap to 3.
+    """
+    ans = (answer or "").strip().lower()
+    if not ans or ans in {"yes", "no", "unknown"}:
+        return []
+    out: list[int] = []
+    for i, h in enumerate(hits, 1):
+        try:
+            if ans and ans in (h.text or "").lower():
+                out.append(i)
+        except Exception:
+            continue
+        if len(out) >= 3:
+            break
+    # Dedup while keeping order
+    seen: set[int] = set()
+    uniq = []
+    for idx in out:
+        if idx not in seen:
+            seen.add(idx)
+            uniq.append(idx)
+    return uniq
 
 # -------- Ollama helpers --------
 def _chat(payload: dict, timeout: int) -> Tuple[bool, dict, str]:
@@ -384,7 +415,16 @@ def answer(
     ans = call_ollama(model=model, prompt=prompt, temperature=temperature, max_tokens=max_tokens)
     ms = int((time.time() - t0) * 1000)
 
+    # Abstention logic: if no informative span is found in any source and top score is weak.
+    top_score = max((h.score for h in search_hits), default=0.0)
+    yn = is_yesno_question(q)
+    cits = compute_citations(ans, search_hits)
+    min_top = float(os.getenv("ANSWER_MIN_TOP_SCORE", "0.30"))
+    if (not yn) and (not cits) and (top_score < min_top):
+        ans = "unknown"
+        cits = []
+
     if not ans.strip():
         ans = "unknown"
 
-    return AnswerResponse(answer=ans, hits=search_hits, latency_ms=ms)
+    return AnswerResponse(answer=ans, hits=search_hits, citations=cits, latency_ms=ms)

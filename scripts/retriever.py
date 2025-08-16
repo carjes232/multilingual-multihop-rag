@@ -31,7 +31,12 @@ import numpy as np
 import psycopg2
 from psycopg2 import sql
 
-import embedder as emb
+try:
+    # Imported as part of package 'scripts'
+    from . import embedder as emb  # type: ignore
+except Exception:  # pragma: no cover
+    # Imported from within scripts/ directory as a loose module
+    import embedder as emb  # type: ignore
 import dotenv
 
 dotenv.load_dotenv()
@@ -125,56 +130,89 @@ class PineconeRetriever:
         self._namespace = os.getenv("PINECONE_NAMESPACE", "")
 
     def search(self, model, queries: List[str], k: int) -> List[List[Hit]]:
-        # Prefer integrated text search if available (no client-side embedding)
+        """Prefer Pinecone integrated text search; fallback to vector query.
+
+        Integrated path requires the index to be created with `source_model` and
+        data upserted via `upsert_records`. If unavailable, we embed client-side
+        and use classic vector `query`.
+        """
         out: List[List[Hit]] = []
         for q in queries:
             matches = None
-            # Prefer integrated text search when available
+            # Try integrated text search
             try:
                 if hasattr(self._index, "search"):
                     res = self._index.search(
                         namespace=self._namespace or None,
-                        query={"inputs": {"text": q}, "top_k": int(k)},
+                        query={
+                            "inputs": {"text": q},
+                            "top_k": int(k),
+                            "include_metadata": True,
+                        },
                     )
                     matches = res.get("matches") if isinstance(res, dict) else getattr(res, "matches", None)
             except Exception:
                 matches = None
 
-            if matches is None:
-                # Fallback: embed locally (same model name), then query by vector
+            if not matches:
+                # Fallback: embed locally and query by vector
                 vecs = embed_queries([q])
-                hits_batch = self.search_vecs(vecs, k)
-                out.append(hits_batch[0] if hits_batch else [])
+                batch = self.search_vecs(vecs, k)
+                out.append(batch[0] if batch else [])
                 continue
 
-            ids = []
-            scores = []
-            for m in matches:
-                mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", "")
-                sc = m.get("score") if isinstance(m, dict) else getattr(m, "score", 0.0)
+            ids: List[str] = []
+            scores: List[float] = []
+            metas: List[dict] = []
+            for m in matches or []:
+                if isinstance(m, dict):
+                    mid = m.get("id")
+                    sc = m.get("score")
+                    md = m.get("metadata") or {}
+                else:
+                    mid = getattr(m, "id", "")
+                    sc = getattr(m, "score", 0.0)
+                    md = getattr(m, "metadata", {}) or {}
                 ids.append(str(mid))
                 scores.append(float(sc) if sc is not None else 0.0)
-            out.append(self._hydrate_hits(ids, scores))
+                metas.append(md if isinstance(md, dict) else {})
+
+            # Build hits, hydrating text/title when missing
+            hits: List[Hit] = []
+            need_hydrate = False
+            for i, mid in enumerate(ids):
+                md = metas[i]
+                title = md.get("title") if md else None
+                text = md.get("text") if md else ""
+                doc_id = md.get("doc_id") if md else None
+                if not text or title is None:
+                    need_hydrate = True
+                hits.append(Hit(id=str(mid), doc_id=str(doc_id) if doc_id is not None else None,
+                                title=str(title) if title is not None else None,
+                                text=str(text) if text is not None else "",
+                                score=scores[i]))
+            if need_hydrate:
+                ids = [h.id for h in hits]
+                scores2 = [h.score for h in hits]
+                hits = self._hydrate_hits(ids, scores2)
+            out.append(hits)
         return out
 
     def search_vecs(self, vecs: np.ndarray, k: int) -> List[List[Hit]]:
-        # Pinecone expects plain lists
-        vec_lists = [v.tolist() for v in vecs]
-        res = self._index.query(vector=vec_lists, top_k=k, include_metadata=True)
-        # Batch query returns a list of QueryResponse
         out: List[List[Hit]] = []
-        results = res.get("results") if isinstance(res, dict) else getattr(res, "results", None)
-        if results is None:
-            # Legacy single-query shape
-            results = [res]
-        for qr in results:
-            matches = qr.get("matches") if isinstance(qr, dict) else getattr(qr, "matches", [])
+        ns = self._namespace or None
+        for v in vecs:
+            try:
+                res = self._index.query(vector=v.tolist(), top_k=int(k), include_metadata=True, namespace=ns)
+            except TypeError:
+                res = self._index.query(vector=v.tolist(), top_k=int(k), include_metadata=True)
+
+            matches = res.get("matches") if isinstance(res, dict) else getattr(res, "matches", [])
             hits: List[Hit] = []
             for m in matches or []:
                 mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", "")
                 score = m.get("score") if isinstance(m, dict) else getattr(m, "score", 0.0)
                 md = m.get("metadata") if isinstance(m, dict) else getattr(m, "metadata", {})
-                # If metadata not present, hydrate from Postgres
                 if not md:
                     hits.append(Hit(id=str(mid), doc_id=None, title=None, text="", score=float(score or 0.0)))
                 else:
@@ -185,17 +223,12 @@ class PineconeRetriever:
                         text=str(md.get("text")) if md and md.get("text") is not None else "",
                         score=float(score) if score is not None else 0.0,
                     ))
-            out.append(hits)
-        # If any batch lacks text/title, hydrate from Postgres
-        out_hydrated: List[List[Hit]] = []
-        for hits in out:
             if any((not h.text) or (h.title is None) for h in hits):
                 ids = [h.id for h in hits]
                 scores = [h.score for h in hits]
-                out_hydrated.append(self._hydrate_hits(ids, scores))
-            else:
-                out_hydrated.append(hits)
-        return out_hydrated
+                hits = self._hydrate_hits(ids, scores)
+            out.append(hits)
+        return out
 
     def _hydrate_hits(self, ids: List[str], scores: List[float]) -> List[Hit]:
         # Fetch chunk details from Postgres by id list
