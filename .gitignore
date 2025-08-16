@@ -67,3 +67,4 @@ runtime/evals_multi/retrieval/*json*
 pgdata/
 postgres-data/
 runtime/evals_multi/online/all_errors_by_model_online.json
+.kilocode/mcp.json

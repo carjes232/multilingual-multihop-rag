@@ -5,7 +5,7 @@ PIP=pip
 VENV=.venv
 ACT=. $(VENV)/bin/activate
 
-.PHONY: help install venv api pipeline index eval-local eval-online search db-up db-down format lint test pinecone-upsert pinecone-reindex pinecone-health
+.PHONY: help install venv api pipeline index eval-local eval-online search db-up db-down format lint test pinecone-upsert pinecone-reindex pinecone-health pinecone-recreate
 
 help:
 	@echo "Targets:"
@@ -22,6 +22,7 @@ help:
 	@echo "  pinecone-upsert - upsert chunks to Pinecone (online embeddings)"
 	@echo "  pinecone-reindex - create Pinecone index with source_model + upsert"
 	@echo "  pinecone-health  - run Pinecone health + smoke search"
+	@echo "  pinecone-recreate - delete and recreate Pinecone index (DANGEROUS)"
 	@echo "  lint          - ruff check"
 	@echo "  format        - ruff format"
 	@echo "  test          - pytest -q"
@@ -73,10 +74,14 @@ test:
 	$(ACT) && pytest -q
 
 pinecone-upsert:
-	$(ACT) && $(PY) scripts/04b_upsert_chunks_pinecone.py --index $${PINECONE_INDEX:-rag-chunks} --batch 128 --limit 0
+	$(ACT) && $(PY) scripts/04b_upsert_chunks_pinecone.py --index $${PINECONE_INDEX:-rag} --batch 128 --limit 0
 
 pinecone-reindex:
-	$(ACT) && $(PY) scripts/04b_upsert_chunks_pinecone.py --create-index --index $${PINECONE_INDEX:-rag-chunks} --batch 128 --limit 0
+	$(ACT) && $(PY) scripts/04b_upsert_chunks_pinecone.py --create-index --index $${PINECONE_INDEX:-rag} --batch 128 --limit 0
 
 pinecone-health:
-	$(ACT) && $(PY) scripts/pinecone_health.py --index $${PINECONE_INDEX:-rag-chunks}
+	$(ACT) && $(PY) scripts/pinecone_health.py --index $${PINECONE_INDEX:-rag}
+
+# Danger: deletes and recreates the index when it already exists
+pinecone-recreate:
+	$(ACT) && $(PY) scripts/04b_upsert_chunks_pinecone.py --create-index --force-recreate --index $${PINECONE_INDEX:-rag} --batch 128 --limit 0

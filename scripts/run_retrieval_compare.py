@@ -32,6 +32,9 @@ import subprocess
 import sys
 from typing import Dict, List
 
+from dotenv import load_dotenv
+load_dotenv()  # <-- make .env available to this script and its subprocesses
+
 
 def run(cmd: List[str], env_overrides: Dict[str, str] | None = None) -> tuple[int, str, str]:
     env = os.environ.copy()
@@ -40,7 +43,6 @@ def run(cmd: List[str], env_overrides: Dict[str, str] | None = None) -> tuple[in
     print("$", " ".join(cmd))
     res = subprocess.run(cmd, env=env, capture_output=True, text=True)
     if res.stdout:
-        # Echo stdout for visibility (trim very long outputs)
         print(res.stdout if len(res.stdout) < 4000 else res.stdout[-4000:])
     if res.returncode != 0 and res.stderr:
         print("[stderr]" if len(res.stderr) < 4000 else "[stderr tail]", file=sys.stderr)
@@ -156,7 +158,7 @@ def main():
         "RETRIEVER_BACKEND": "pinecone",
         "EMBEDDING_BACKEND": "pinecone",
         "EMBEDDING_MODEL": "multilingual-e5-large",
-        # Expect PINECONE_* already set in environment or .env loaded by underlying scripts
+        # Expect PINECONE_* already set in env/.env (loaded above)
     }
 
     # Run Local
@@ -169,13 +171,18 @@ def main():
     else:
         print("[skip] Local (pgvector) runs disabled via --skip-local")
 
-    # Run Pinecone (if not skipped)
+    # Run Pinecone
     if not args.skip_pinecone:
+        pc_idx = os.getenv("PINECONE_INDEX", "<unset>")
+        pc_ns = os.getenv("PINECONE_NAMESPACE", "__default__") or "__default__"
+        print(f"[info] Pinecone index={pc_idx} namespace={pc_ns}")
         eval_retrieval_for(env_pc, args.file_en, os.path.join(args.out_root, "pinecone_en"), args.k_list, args.limit_en)
         eval_retrieval_for(env_pc, file_en_multi, os.path.join(args.out_root, "pinecone_en"), args.k_list, args.limit_multi)
         eval_retrieval_for(env_pc, file_es, os.path.join(args.out_root, "pinecone_es"), args.k_list, args.limit_multi)
         eval_retrieval_for(env_pc, file_pt, os.path.join(args.out_root, "pinecone_pt"), args.k_list, args.limit_multi)
         multilingual_overlap_for(env_pc, os.path.join(args.out_root, "pinecone"))
+    else:
+        print("[skip] Pinecone runs disabled via --skip-pinecone")
 
     print("[DONE] Outputs under:", os.path.abspath(args.out_root))
 
