@@ -1,47 +1,40 @@
 name: CI
+on: [push, pull_request]
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+permissions:
+  contents: read
+  id-token: write  # required for OIDC
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-    - name: Install dependencies
-      run: |
-        python -m venv .venv
-        source .venv/bin/activate
-        pip install -r requirements.txt
-        pip install pytest==8.3.2 pytest-cov==5.0.0
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-    - name: Run ruff
-      run: |
-        source .venv/bin/activate
-        ruff check .
+      - name: Test
+        run: |
+          source .venv/bin/activate
+          pytest --cov=scripts --cov-report=xml
 
-    - name: Run tests and coverage
-      run: |
-        source .venv/bin/activate
-        pytest --cov=scripts --cov-report=xml
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: true
+      - name: Upload coverage to Codecov (OIDC)
+        # Skip on forks, run only on your repo
+        if: ${{ github.repository == 'carjes232/multilingual-multihop-rag' }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
