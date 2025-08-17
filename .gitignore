@@ -58,3 +58,5 @@ runtime/evals_multi/retrieval/*json*
 # Optional: local Postgres volumes (if you add them later)
 pgdata/
 postgres-data/
+.kilocode/mcp.json
+runtime/evals_multi/online/all_errors_by_model_online.json
