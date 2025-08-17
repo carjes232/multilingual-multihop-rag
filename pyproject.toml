@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["scripts"]
+exclude = [".venv", "runtime", "__pycache__"]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "I",  # isort
+]
+ignore = [
+    "E701",  # multiple statements on one line (colon)
+    "E702",  # multiple statements on one line (semicolon)
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

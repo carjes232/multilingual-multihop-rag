@@ -28,7 +28,7 @@ from typing import Dict, List, Tuple
 
 import requests
 
-API_URL_ANSWER = "http://127.0.0.1:8000/answer"   # your FastAPI RAG route
+API_URL_ANSWER = "http://127.0.0.1:8000/answer"  # your FastAPI RAG route
 OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 
 
@@ -87,9 +87,25 @@ def percentile(ms: List[int], p: float) -> int:
 # ----------------------------
 def is_yesno_question(q: str) -> bool:
     q = (q or "").strip().lower()
-    return q.startswith(("is ", "are ", "was ", "were ", "do ", "does ", "did ",
-                         "can ", "could ", "should ", "has ", "have ", "had ",
-                         "will ", "would "))
+    return q.startswith(
+        (
+            "is ",
+            "are ",
+            "was ",
+            "were ",
+            "do ",
+            "does ",
+            "did ",
+            "can ",
+            "could ",
+            "should ",
+            "has ",
+            "have ",
+            "had ",
+            "will ",
+            "would ",
+        )
+    )
 
 
 # ----------------------------
@@ -136,14 +152,11 @@ def call_ollama_no_rag_json_final(
     yn = is_yesno_question(question_only)
     policy = (
         'Return ONLY a JSON object {"final": "<short>"} where final is exactly "yes" or "no".'
-        if yn else
-        'Return ONLY a JSON object {"final": "<short>"} with a SHORT span (≤6 words) that answers the question.'
+        if yn
+        else 'Return ONLY a JSON object {"final": "<short>"} with a SHORT span (≤6 words) that answers the question.'
     )
 
-    system = (
-        "You may include a brief <think> plan (max 2 short sentences). "
-        + policy
-    )
+    system = "You may include a brief <think> plan (max 2 short sentences). " + policy
     schema = {
         "type": "object",
         "properties": {"final": {"type": "string", "minLength": 1, "maxLength": 80}},
@@ -177,7 +190,7 @@ def call_ollama_no_rag_json_final(
         obj = json.loads(content)
         ans = (obj.get("final") or "").strip()
     except Exception:
-        m = re.search(r'\"final\"\s*:\s*\"(.*?)\"', content, flags=re.S)
+        m = re.search(r"\"final\"\s*:\s*\"(.*?)\"", content, flags=re.S)
         ans = m.group(1).strip() if m else content.splitlines()[0].strip()
 
     return ans, dt
@@ -203,22 +216,32 @@ def main():
     paths = {
         "rag_fail": os.path.join(args.out_dir, "rag_failures.jsonl"),
         "rag_succ": os.path.join(args.out_dir, "rag_successes.jsonl"),
-        "nr_fail":  os.path.join(args.out_dir, "norag_failures.jsonl"),
-        "nr_succ":  os.path.join(args.out_dir, "norag_successes.jsonl"),
-        "cmp":      os.path.join(args.out_dir, "comparative.csv"),
-        "summary":  os.path.join(args.out_dir, "summary.json"),
-        "gains":    os.path.join(args.out_dir, "top_f1_gains.jsonl"),
-        "losses":   os.path.join(args.out_dir, "top_f1_losses.jsonl"),
+        "nr_fail": os.path.join(args.out_dir, "norag_failures.jsonl"),
+        "nr_succ": os.path.join(args.out_dir, "norag_successes.jsonl"),
+        "cmp": os.path.join(args.out_dir, "comparative.csv"),
+        "summary": os.path.join(args.out_dir, "summary.json"),
+        "gains": os.path.join(args.out_dir, "top_f1_gains.jsonl"),
+        "losses": os.path.join(args.out_dir, "top_f1_losses.jsonl"),
     }
 
     files = {k: open(v, "w", encoding="utf-8", newline="") for k, v in paths.items() if k not in ("summary",)}
     cmp_writer = csv.writer(files["cmp"])
-    cmp_writer.writerow([
-        "question","gold",
-        "pred_rag","em_rag","f1_rag","latency_ms_rag",
-        "pred_norag","em_norag","f1_norag","latency_ms_norag",
-        "rag_better","f1_gain",
-    ])
+    cmp_writer.writerow(
+        [
+            "question",
+            "gold",
+            "pred_rag",
+            "em_rag",
+            "f1_rag",
+            "latency_ms_rag",
+            "pred_norag",
+            "em_norag",
+            "f1_norag",
+            "latency_ms_norag",
+            "rag_better",
+            "f1_gain",
+        ]
+    )
 
     # Aggregates
     n = 0
@@ -254,8 +277,7 @@ def main():
             # ---- WITH RAG ----
             try:
                 pred_rag, ms_rag = call_answer_api_rag(
-                    q=q, k=args.k, model=args.model,
-                    temperature=args.temperature, max_tokens=args.max_tokens
+                    q=q, k=args.k, model=args.model, temperature=args.temperature, max_tokens=args.max_tokens
                 )
             except requests.RequestException as e:
                 print("RAG API error:", e)
@@ -286,30 +308,49 @@ def main():
             nr_latencies.append(ms_nr)
 
             if samples_printed < 5:
-                print(f"Q: {q}\nA*: {gold}\nA_RAG : {pred_rag}\nA_NR  : {pred_nr}\n"
-                      f"EM_RAG={em_rag} F1_RAG={f1_rag:.3f} t_RAG={ms_rag}ms | "
-                      f"EM_NR={em_nr} F1_NR={f1_nr:.3f} t_NR={ms_nr}ms\n---")
+                print(
+                    f"Q: {q}\nA*: {gold}\nA_RAG : {pred_rag}\nA_NR  : {pred_nr}\n"
+                    f"EM_RAG={em_rag} F1_RAG={f1_rag:.3f} t_RAG={ms_rag}ms | "
+                    f"EM_NR={em_nr} F1_NR={f1_nr:.3f} t_NR={ms_nr}ms\n---"
+                )
                 samples_printed += 1
 
             row_obj: Dict[str, object] = {
-                "question": q, "gold": gold,
-                "pred_rag": pred_rag, "em_rag": em_rag, "f1_rag": f1_rag, "latency_ms_rag": ms_rag,
-                "pred_norag": pred_nr, "em_norag": em_nr, "f1_norag": f1_nr, "latency_ms_norag": ms_nr,
+                "question": q,
+                "gold": gold,
+                "pred_rag": pred_rag,
+                "em_rag": em_rag,
+                "f1_rag": f1_rag,
+                "latency_ms_rag": ms_rag,
+                "pred_norag": pred_nr,
+                "em_norag": em_nr,
+                "f1_norag": f1_nr,
+                "latency_ms_norag": ms_nr,
             }
 
             # Write per-mode splits
             files["rag_succ" if em_rag else "rag_fail"].write(json.dumps(row_obj, ensure_ascii=False) + "\n")
-            files["nr_succ"  if em_nr  else "nr_fail" ].write(json.dumps(row_obj, ensure_ascii=False) + "\n")
+            files["nr_succ" if em_nr else "nr_fail"].write(json.dumps(row_obj, ensure_ascii=False) + "\n")
 
             # Comparative CSV row
             rag_better = (f1_rag > f1_nr) or (em_rag and not em_nr)
             f1_gain = round(f1_rag - f1_nr, 6)
-            cmp_writer.writerow([
-                q, gold,
-                pred_rag, int(em_rag), f"{f1_rag:.3f}", ms_rag,
-                pred_nr,  int(em_nr),  f"{f1_nr:.3f}",  ms_nr,
-                int(rag_better), f1_gain
-            ])
+            cmp_writer.writerow(
+                [
+                    q,
+                    gold,
+                    pred_rag,
+                    int(em_rag),
+                    f"{f1_rag:.3f}",
+                    ms_rag,
+                    pred_nr,
+                    int(em_nr),
+                    f"{f1_nr:.3f}",
+                    ms_nr,
+                    int(rag_better),
+                    f1_gain,
+                ]
+            )
 
             gains_buf.append((f1_gain, row_obj))
             n += 1
@@ -406,8 +447,15 @@ def main():
     print(f"Evaluated: {n} | k={args.k} | model={args.model}")
     print(f"[WITH RAG ] EM: {rag_em:.3f}  F1: {rag_f1:.3f}  Lat p50: {rag_p50} ms  p95: {rag_p95} ms")
     print(f"[NO  RAG ] EM: {nr_em:.3f}  F1: {nr_f1:.3f}  Lat p50: {nr_p50} ms  p95: {nr_p95} ms")
-    print(f"EM breakdown — RAG only wins: {em_rag_only} | No-RAG only wins: {em_nr_only} | both true: {em_both_true} | both false: {em_both_false}")
-    print(f"F1 gains — +: {pos_gain}  −: {neg_gain}  0: {zero_gain} | avg gain: {avg_gain:.3f} | median gain: {med_gain:.3f}")
+    print(
+        "EM breakdown — RAG only wins: "
+        f"{em_rag_only} | No-RAG only wins: {em_nr_only} | both true: {em_both_true} | "
+        f"both false: {em_both_false}"
+    )
+    print(
+        f"F1 gains — +: {pos_gain}  −: {neg_gain}  0: {zero_gain} | avg gain: {avg_gain:.3f} | "
+        f"median gain: {med_gain:.3f}"
+    )
     print("Files written:")
     for k, v in paths.items():
         print(f" - {k:10s} -> {os.path.abspath(v)}")

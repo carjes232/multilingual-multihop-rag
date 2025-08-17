@@ -5,29 +5,36 @@
 - Embed with BAAI/bge-m3 on GPU (if available), L2-normalized
 - Bulk-update embeddings into pgvector column
 - Sanity-check norms at the end
+
+Reads DB config from environment variables (see .env.example):
+  DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
 """
 
 import math
+import os
 import time
+
 import numpy as np
 import psycopg2
+import torch
+from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 from sentence_transformers import SentenceTransformer
-import torch
-
 
 # ---------- Config ----------
+# Load environment (.env) if present
+load_dotenv()
 DB = dict(
-    host="localhost",
-    port=5432,
-    dbname="ragdb",
-    user="rag",
-    password="rag",
+    host=os.getenv("DB_HOST", "localhost"),
+    port=int(os.getenv("DB_PORT", "5432")),
+    dbname=os.getenv("DB_NAME", "ragdb"),
+    user=os.getenv("DB_USER", "rag"),
+    password=os.getenv("DB_PASSWORD", "rag"),
 )
 MODEL_NAME = "BAAI/bge-m3"
-GPU_BATCH = 64         # texts per forward pass on GPU; lower if VRAM is tight
-QUERY_LIMIT = 512      # rows pulled from DB per outer loop
-PAGE_SIZE = 1000       # rows per VALUES page in bulk UPDATE
+GPU_BATCH = 64  # texts per forward pass on GPU; lower if VRAM is tight
+QUERY_LIMIT = 512  # rows pulled from DB per outer loop
+PAGE_SIZE = 1000  # rows per VALUES page in bulk UPDATE
 
 
 # ---------- Helpers ----------
@@ -70,7 +77,7 @@ while True:
     # Encode in GPU-sized minibatches
     batch_vecs = []
     for i in range(0, len(texts), GPU_BATCH):
-        batch_texts = list(texts[i:i + GPU_BATCH])
+        batch_texts = list(texts[i : i + GPU_BATCH])
         embs = model.encode(
             batch_texts,
             batch_size=len(batch_texts),
@@ -107,23 +114,23 @@ missing = cur.fetchone()[0]
 cur.execute("SELECT COUNT(*) FROM chunks WHERE embedding IS NOT NULL;")
 filled = cur.fetchone()[0]
 
-print(f"\nSanity:")
+print("\nSanity:")
 print(f"- Total chunks:               {total_chunks}")
 print(f"- Chunks with embeddings:     {filled}")
 print(f"- Chunks still missing:       {missing}")
 
+
 # Fetch a few embeddings and compute L2 norms in Python
 def parse_pgvector_text(s: str):
     s = s.strip()
-    if s.startswith('[') and s.endswith(']'):
+    if s.startswith("[") and s.endswith("]"):
         s = s[1:-1]
     return [float(x) for x in s.split(",") if x]
 
+
 cur.execute("SELECT id, embedding FROM chunks WHERE embedding IS NOT NULL LIMIT 3;")
 rows = cur.fetchall()
-import math
 for _id, emb_raw in rows:
     emb = parse_pgvector_text(emb_raw) if isinstance(emb_raw, str) else emb_raw
-    norm = math.sqrt(sum(x*x for x in emb))
+    norm = math.sqrt(sum(x * x for x in emb))
     print(f"id={_id}  norm={norm:.6f}")
-

@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 import json
+import os
 import pathlib
+
 import psycopg2
-from psycopg2.extras import execute_values, Json
+from dotenv import load_dotenv
+from psycopg2.extras import Json, execute_values
 
 # ---------- Config ----------
 ROOT = pathlib.Path(__file__).parent.resolve().parent
 PATH_DOCS = ROOT / "runtime" / "staging" / "documents.jsonl"
 PATH_CHUNKS = ROOT / "runtime" / "staging" / "chunks.jsonl"
 
+# Load environment (.env) if present
+load_dotenv()
 DB = dict(
-    host="localhost",   # if your Python runs on Windows host and Postgres is port-mapped
-    port=5432,
-    dbname="ragdb",
-    user="rag",
-    password="rag",
+    host=os.getenv("DB_HOST", "localhost"),
+    port=int(os.getenv("DB_PORT", "5432")),
+    dbname=os.getenv("DB_NAME", "ragdb"),
+    user=os.getenv("DB_USER", "rag"),
+    password=os.getenv("DB_PASSWORD", "rag"),
 )
 
 BATCH = 1000  # tune if you like
@@ -71,13 +76,15 @@ with open(PATH_DOCS, "r", encoding="utf-8") as f:
         if not line:
             continue
         d = json.loads(line)
-        rows.append((
-            d["id"],
-            d.get("title"),
-            d.get("lang"),
-            d.get("url"),
-            Json(d.get("meta") or {}),
-        ))
+        rows.append(
+            (
+                d["id"],
+                d.get("title"),
+                d.get("lang"),
+                d.get("url"),
+                Json(d.get("meta") or {}),
+            )
+        )
         docs_lines += 1
         if len(rows) >= BATCH:
             execute_values(cur, insert_docs_sql, rows, page_size=BATCH)
@@ -111,16 +118,18 @@ with open(PATH_CHUNKS, "r", encoding="utf-8") as f:
         if not line:
             continue
         c = json.loads(line)
-        rows.append((
-            c["id"],
-            c.get("doc_id"),
-            c.get("ord"),
-            c.get("lang"),
-            c.get("title"),
-            c.get("text"),
-            c.get("tokens"),
-            None,  # embedding stays NULL for now
-        ))
+        rows.append(
+            (
+                c["id"],
+                c.get("doc_id"),
+                c.get("ord"),
+                c.get("lang"),
+                c.get("title"),
+                c.get("text"),
+                c.get("tokens"),
+                None,  # embedding stays NULL for now
+            )
+        )
         chunks_lines += 1
         if len(rows) >= BATCH:
             execute_values(cur, insert_chunks_sql, rows, page_size=BATCH)

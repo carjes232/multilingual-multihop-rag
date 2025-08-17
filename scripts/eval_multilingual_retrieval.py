@@ -22,10 +22,11 @@ import os
 from typing import Dict, List, Tuple
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from scripts.api import search_multi
+from api import search_multi
 
 
 def jaccard(a: List[str], b: List[str]) -> float:
@@ -111,7 +112,12 @@ def main():
     ap.add_argument("--file", type=str, default="", help="Optional JSON file with list of {id,en,es,pt}")
     ap.add_argument("--k", type=int, default=5, help="Top-k contexts per query")
     ap.add_argument("--limit", type=int, default=3, help="How many queries from the set to run")
-    ap.add_argument("--out-dir", type=str, default="runtime/evals_multi/retrieval", help="Output directory for plots/CSV")
+    ap.add_argument(
+        "--out-dir",
+        type=str,
+        default="runtime/evals_multi/retrieval",
+        help="Output directory for plots/CSV",
+    )
     ap.add_argument("--save-csv", action="store_true", help="Also write multilingual_overlap.csv")
     args = ap.parse_args()
 
@@ -161,4 +167,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

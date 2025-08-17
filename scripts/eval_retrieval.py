@@ -24,25 +24,24 @@ Notes:
 import argparse
 import json
 import os
+import sys
 import time
-from typing import Dict, List, Tuple, Set, Optional
+from typing import Dict, List, Optional, Set
 
 import numpy as np
-import psycopg2
-from psycopg2 import sql
-from sentence_transformers import SentenceTransformer
-import torch
+
+import embedder as emb
+import retriever as retr
+
+# Make stdout/stderr tolerant to non-ASCII on Windows consoles
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+except Exception:
+    pass
 
 
-# -------- Config --------
-DB = dict(
-    host="localhost",
-    port=5432,
-    dbname="ragdb",
-    user="rag",
-    password="rag",
-)
-MODEL_NAME = "BAAI/bge-m3"
+MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
 
 
 def parse_k_list(k_list_str: str, fallback_k: int) -> List[int]:
@@ -154,25 +153,14 @@ def vec_to_pgvector(v: np.ndarray) -> str:
     return "[" + ",".join(f"{x:.6f}" for x in v.tolist()) + "]"
 
 
-def load_model() -> SentenceTransformer:
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = SentenceTransformer(MODEL_NAME, device=device)
-    return model
-
-
-def db_search(conn, qvec_text: str, top_k: int) -> List[Tuple[str, str, str, str, float]]:
-    with conn.cursor() as cur:
-        query = sql.SQL(
-            """
-            SELECT id, doc_id, title, text, 1 - (embedding <=> {q}::vector) AS score
-            FROM chunks
-            WHERE embedding IS NOT NULL
-            ORDER BY embedding <=> {q}::vector
-            LIMIT {k}
-            """
-        ).format(q=sql.Literal(qvec_text), k=sql.Literal(top_k))
-        cur.execute(query)
-        return cur.fetchall()
+def maybe_load_model():
+    # Use embedder's loader for consistent model id and E5 handling
+    if emb.get_backend() == "local":
+        try:
+            return emb._ensure_local_model()  # type: ignore[attr-defined]
+        except Exception:
+            return None
+    return None
 
 
 def gold_titles_from_example(ex: dict) -> Set[str]:
@@ -185,17 +173,26 @@ def gold_titles_from_example(ex: dict) -> Set[str]:
 
 def main():
     ap = argparse.ArgumentParser(description="Evaluate retrieval recall@k using HotpotQA titles")
-    ap.add_argument("--file", default="runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl",
-                    help="Hotpot JSONL with fields question/answer/context")
+    ap.add_argument(
+        "--file",
+        default="runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl",
+        help="Hotpot JSONL with fields question/answer/context",
+    )
     ap.add_argument("--k", dest="top_k", type=int, default=5, help="Top-K if --k-list not provided")
-    ap.add_argument("--k-list", type=str, default="", help="Comma-separated list of K values (e.g., '1,5,10'). Overrides --k.")
+    ap.add_argument(
+        "--k-list",
+        type=str,
+        default="",
+        help="Comma-separated list of K values (e.g., '1,5,10'). Overrides --k.",
+    )
     ap.add_argument("--limit", type=int, default=50, help="How many questions to evaluate")
     ap.add_argument("--plot-out", type=str, default=None, help="Directory to save plots/CSV (optional)")
     ap.add_argument("--save-csv", action="store_true", help="Also write recall_by_k.csv when plotting")
     args = ap.parse_args()
 
-    model = load_model()
-    conn = psycopg2.connect(**DB)
+    # optional: load local embedder model; retriever handles embeddings per backend
+    _ = maybe_load_model()
+    r = retr.make_retriever()
 
     k_values = parse_k_list(args.k_list, args.top_k)
     k_max = max(k_values)
@@ -225,15 +222,24 @@ def main():
 
             t0_total = time.perf_counter()
 
-            t0_enc = time.perf_counter()
-            qvec = model.encode([q], normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=False)[0]
-            t1_enc = time.perf_counter()
+            if emb.get_backend() == "local":
+                t0_enc = time.perf_counter()
+                # Embed via embedder to ensure E5 'query:' prefix and correct model id
+                qvec = emb.embed([q], purpose="query")[0]
+                t1_enc = time.perf_counter()
+                t0_db = time.perf_counter()
+                hits_batches = r.search_vecs(np.expand_dims(qvec, 0), k_max)  # type: ignore[attr-defined]
+                hits = hits_batches[0] if hits_batches else []
+                t1_db = time.perf_counter()
+            else:
+                # Pinecone integrated search: no client-side embedding
+                t0_enc = t1_enc = time.perf_counter()
+                t0_db = time.perf_counter()
+                hits_batches = r.search(None, [q], k_max)
+                hits = hits_batches[0] if hits_batches else []
+                t1_db = time.perf_counter()
 
-            t0_db = time.perf_counter()
-            rows = db_search(conn, vec_to_pgvector(qvec), k_max)
-            t1_db = time.perf_counter()
-
-            ret_titles_list = [r[2] for r in rows if r[2]]
+            ret_titles_list = [h.title for h in hits if h.title]
 
             # hits by k
             for k in k_values:
@@ -257,7 +263,8 @@ def main():
 
             total += 1
             if total <= 5:  # keep a few samples for display
-                examples.append((q, list(gold_titles)[:3], [(r[2], float(r[4])) for r in rows[:3]], rank is not None))
+                top3 = [(h.title, float(h.score)) for h in hits[:3]]
+                examples.append((q, list(gold_titles)[:3], top3, rank is not None))
 
     recall_by_k = {k: (hits_by_k[k] / total) if total else 0.0 for k in k_values}
     mrr = (mrr_sum / total) if total else 0.0
@@ -270,7 +277,12 @@ def main():
     print(f"Evaluated: {total} questions | k-values={k_values}")
     recall_summary = ", ".join([f"R@{k}={recall_by_k[k]:.3f}" for k in sorted(k_values)])
     print(f"{recall_summary} | MRR@{k_max}={mrr:.3f}  (hits={hits_by_k})")
-    print(f"Avg times (ms): encode={avg_times_ms['encode_ms']:.1f}, db={avg_times_ms['db_ms']:.1f}, total={avg_times_ms['total_ms']:.1f}\n")
+    print(
+        "Avg times (ms): "
+        f"encode={avg_times_ms['encode_ms']:.1f}, "
+        f"db={avg_times_ms['db_ms']:.1f}, "
+        f"total={avg_times_ms['total_ms']:.1f}\n"
+    )
 
     print("Examples:")
     for i, (q, gold, retrieved, ok) in enumerate(examples, 1):
@@ -288,7 +300,7 @@ def main():
             save_csv=args.save_csv,
         )
 
-    conn.close()
+    # no connection to close for env-gated retriever
 
 
 if __name__ == "__main__":

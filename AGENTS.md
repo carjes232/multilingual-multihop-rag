@@ -1,3 +1,69 @@
+# AGENTS.md — Global Coding Agent Guidelines
+
+## Role and Objective
+- Ensure consistent, reliable, and secure code contributions by adhering to established workflows, toolchains, and repository standards.
+
+## Checklist
+- Clarify assumptions, scope, and environment before changes.
+- Outline a minimal plan and validation steps (use the Plan tool when multi‑step).
+- Make focused, minimal diffs aligned to repo style.
+- Add/update smoke tests and docs as needed.
+- Run linters/tests deterministically and fix issues.
+- Use Conventional Commits and avoid leaking secrets.
+
+## Instructions
+
+### Deterministic, lockfile‑aware installs
+- Node: `npm ci` (never `npm install`).
+- Python: `pip install -r requirements.txt` in a venv (`make venv && make install`).
+- Rust: run `cargo fetch` before builds.
+
+### For all code edits
+1) State assumptions about repo context and tooling.
+2) Create or run minimal tests covering changes; produce ready‑to‑review diffs.
+3) Follow repository style and configuration files strictly.
+
+### Tests and linters (run locally before submitting)
+- Tests: `pytest -q`.
+- Lint/format: `ruff check` and `ruff format`.
+- Prefer running via Make targets: `make test`, `make lint`, `make format`.
+
+### Repository conventions
+- Adopt current configs and formatting (Ruff) and do not reformat unrelated files.
+- Minimize scope: touch only files directly related to the task.
+- Use Conventional Commits (e.g., `feat(api): ...`, `fix(search): ...`).
+- Prefer Makefile targets over hand‑rolled commands.
+
+### Secrets and configuration
+- Prevent accidental leakage: never commit `.env` or credentials.
+- For secret references, add example entries to `.env.example`.
+ - Environment toggles to know:
+   - `RETRIEVER_BACKEND=pgvector|pinecone`
+   - `EMBEDDING_BACKEND=local|pinecone` (Pinecone = online embeddings)
+   - `EMBEDDING_MODEL` (e.g., `multilingual-e5-large`)
+   - Pinecone: `PINECONE_API_KEY`, `PINECONE_INDEX`, optional `PINECONE_NAMESPACE`
+   - API abstention threshold: `ANSWER_MIN_TOP_SCORE` (default `0.30`)
+
+### Testing expectations
+- Add or modify tests for new functionality; keep tests fast and deterministic.
+
+### Tooling boundaries
+- Do not switch package managers or frameworks unless explicitly directed.
+- Document new commands: update npm scripts or Makefile targets when relevant.
+- Follow CI commands when present; check `package.json`, `pyproject.toml`, or `Makefile` for canonical tasks.
+
+### Validation after each action
+- After each tool call, code edit, or commit, validate the result in 1–2 lines and proceed or self‑correct if validation fails.
+
+## Initialization (/init Command)
+When a user runs `/init` to start or set up AGENTS.md, apply the same checklist and prompting approach:
+- State assumptions about the repo and tooling.
+- Propose a brief plan with steps and expected validations.
+- Scaffold or update AGENTS.md with the guidelines above.
+- Confirm success with a concise validation note and next steps.
+
+---
+
 # Repository Guidelines
 
 ## Project Structure & Modules
@@ -65,12 +131,12 @@ python scripts/eval_multilingual_retrieval.py --k 5 --limit 3 \
 - Config: read DB/model settings from env when adding new code; never commit `.env` (use `.env.example`).
 
 ## Testing Guidelines
-- No formal unit tests yet; use evaluation scripts as regression checks:
-  - Retrieval: `python scripts/eval_retrieval.py --k 5 --limit 50 --file runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl`
-  - RAG vs No‑RAG (local): `python scripts/eval_models.py ... --write-errors`
-  - RAG vs No‑RAG (online): `python scripts/eval_models_online.py ... --write-errors`
-  - Local vs Online comparison: `python scripts/compare_eval_results.py --local ... --online ...`
-- For new modules, add a minimal smoke path (small input, deterministic seed) and document the command in the PR.
+- Unit tests live under `tests/` and cover:
+  - API health: `tests/test_api_health.py`
+  - Entity/short‑answer utils: `tests/test_entities_and_utils.py`
+  - Retriever pooling: `tests/test_retriever_pool.py`
+- Run via `make test` (uses `pytest -q`).
+- For broader regressions, use evaluation scripts as smoke tests.
 
 ## Commit & PR Guidelines
 - Use Conventional Commits (e.g., `feat(api): ...`, `fix(search): ...`).
@@ -107,6 +173,14 @@ python scripts/eval_multilingual_retrieval.py --k 5 --limit 3 \
 - `scripts/make_multilingual_eval_set.py`: builds a 10‑example EN/ES/PT JSONL using OpenRouter translation; keeps answers/context in English for robust EM/F1.
 - `scripts/eval_multilingual_retrieval.py`: multilingual retrieval smoke test; Jaccard overlap across EN/ES/PT for top‑k IDs.
 
+### Pinecone (Online Embeddings + Search)
+- Create Pinecone index with `source_model` and upsert records (online embeddings):
+  - `make pinecone-reindex` (uses `scripts/04b_upsert_chunks_pinecone.py`)
+- Smoke test the index and search path:
+  - `make pinecone-health` (uses `scripts/pinecone_health.py`); prints top matches for a few queries.
+- Compare retrieval (local vs Pinecone):
+  - `python scripts/run_retrieval_compare.py --file-en runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl --out-root runtime/evals_multi/retrieval`
+
 ## Next Tasks (Roadmap)
 - Refactor: add sane “run defaults” per script
   - Provide default flags and ergonomic entrypoints so `python scripts/<tool>.py` runs our typical configuration without long arg lists.
@@ -115,10 +189,9 @@ python scripts/eval_multilingual_retrieval.py --k 5 --limit 3 \
   - Add “answer in English” constraint to prompts for non‑EN questions for stable EM/F1.
   - Expand yes/no normalization to ES/PT (e.g., "sí/sim" ↔ yes, "no" consistent), and add locale‑aware normalization toggles.
   - Run multilingual retrieval overlap on a broader set; add per‑language metrics and plots.
-- Pinecone vs Local comparison (with larger data)
-  - Add Pinecone backend option to retriever (env‑gated), with `.env.example` entries for `PINECONE_API_KEY`, environment, and index.
-  - Re‑embed and load a larger Hotpot slice (hundreds–thousands); compare recall@k, latency, and overall RAG vs No‑RAG performance.
-  - Produce head‑to‑head plots and a comparison CSV similar to local vs online.
+- Pinecone vs Local comparison (scaled)
+  - Use integrated Pinecone path (online embeddings + `search`) and HNSW pgvector; report recall@k and latency deltas.
+  - Automate smoke via `make pinecone-health`; integrate into CI conditionally (when Pinecone env vars are present).
 - Reproducible showcase runner
   - One script (or Makefile) to: generate multilingual set → run retrieval eval → run local+online RAG evals → run comparisons → drop all plots/CSVs in `runtime/evals_multi/`.
 - Response caching and cost tracking (online)

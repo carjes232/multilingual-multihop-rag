@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - EMBEDDING_MODEL=BAAI/bge-m3
+      - API_TOKEN=your_api_token_here
+      - RATE_LIMIT=5/minute
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - MAX_REQUEST_SIZE=1024
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./runtime:/app/runtime
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/ollama/data
+
+volumes:
+  ollama_data:
