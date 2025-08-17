@@ -23,13 +23,18 @@ Example:
 
 from __future__ import annotations
 
-import argparse, json, os, random, time
-from typing import Dict, List, Tuple
+import argparse
+import json
+import os
+import random
+import time
+from typing import Dict, List
 
 import requests
 
 try:
     from dotenv import load_dotenv  # type: ignore
+
     load_dotenv()
 except Exception:
     pass
@@ -82,7 +87,7 @@ def translate_question(q_en: str, target_lang: str, model: str, temperature: flo
     msg = (choices[0] or {}).get("message") or {}
     content = (msg.get("content") or "").strip()
     # Strip wrapping quotes if present
-    if (content.startswith("\"") and content.endswith("\"")) or (content.startswith("'") and content.endswith("'")):
+    if (content.startswith('"') and content.endswith('"')) or (content.startswith("'") and content.endswith("'")):
         content = content[1:-1].strip()
     return content or q_en
 
@@ -154,7 +159,7 @@ def main():
                 q_es = translate_question(q_en, target_lang="es", model=args.model)
                 time.sleep(args.sleep_ms / 1000.0)
                 q_pt = translate_question(q_en, target_lang="pt", model=args.model)
-            except Exception as e:
+            except Exception:
                 # If translation fails, fall back to EN to keep the sample usable
                 q_es = q_en
                 q_pt = q_en
@@ -182,4 +187,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

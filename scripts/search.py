@@ -7,22 +7,20 @@ Simple CLI dense search with env-gated backend (pgvector or Pinecone).
 """
 
 import argparse
-import textwrap
-import sys
-from typing import List, Tuple
-
 import os
+import sys
 
-import retriever as retr
 import embedder as emb
-
+import retriever as retr
 
 MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
 
+
 def maybe_load_model():
     if emb.get_backend() == "local":
-        from sentence_transformers import SentenceTransformer
         import torch
+        from sentence_transformers import SentenceTransformer
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = SentenceTransformer(MODEL_NAME, device=device)
         print(f"Model: {MODEL_NAME} | CUDA: {torch.cuda.is_available()} | Device: {model.device}")
@@ -78,4 +76,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

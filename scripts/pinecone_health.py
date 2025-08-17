@@ -29,7 +29,7 @@ import json
 import os
 import random
 import sys
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from dotenv import load_dotenv
 
@@ -175,14 +175,20 @@ def search_vector(index, q: str, k: int, namespace: Optional[str], fields: Optio
 # ----------------------------
 def main() -> int:
     ap = argparse.ArgumentParser(description="Pinecone health + smoke search (integrated index friendly)")
-    ap.add_argument("--index", default=os.getenv("PINECONE_INDEX", "").strip(),
-                    help="Index name (ignored if PINECONE_INDEX_HOST is set)")
+    ap.add_argument(
+        "--index",
+        default=os.getenv("PINECONE_INDEX", "").strip(),
+        help="Index name (ignored if PINECONE_INDEX_HOST is set)",
+    )
     ap.add_argument("--namespace", default=os.getenv("PINECONE_NAMESPACE", "__default__").strip())
     ap.add_argument("--file", default=None, help="JSONL with a 'question' or 'query' field to sample from")
     ap.add_argument("--n", type=int, default=5, help="Number of sample queries")
     ap.add_argument("--k", type=int, default=5, help="Top-K per query")
-    ap.add_argument("--fields", default=os.getenv("PINECONE_FIELDS", "chunk_text,title,source,lang"),
-                    help="Comma-separated list of fields to return (for printing)")
+    ap.add_argument(
+        "--fields",
+        default=os.getenv("PINECONE_FIELDS", "chunk_text,title,source,lang"),
+        help="Comma-separated list of fields to return (for printing)",
+    )
     args = ap.parse_args()
 
     api_key = os.getenv("PINECONE_API_KEY", "").strip()
@@ -214,12 +220,14 @@ def main() -> int:
             src_model = val
             break
 
-    print("Index:",
-          (args.index or "<by-host>"),
-          "| host:",
-          (index_host or "<by-name>"),
-          "| namespace:",
-          (args.namespace or "__default__"))
+    print(
+        "Index:",
+        (args.index or "<by-host>"),
+        "| host:",
+        (index_host or "<by-name>"),
+        "| namespace:",
+        (args.namespace or "__default__"),
+    )
     if isinstance(desc, dict):
         print("Describe keys:", ", ".join(sorted(desc.keys())) or "<none>")
     print("Model on index (if reported):", src_model or "<not reported>", "| expected:", expected_model)

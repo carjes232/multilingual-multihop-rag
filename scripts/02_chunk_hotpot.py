@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import pathlib
-import os
-import uuid
-import json
 import hashlib
+import json
+import os
+import pathlib
+import uuid
 from collections import defaultdict
 
 # ---------- Config ----------
@@ -24,6 +24,7 @@ os.makedirs(out_path_docs.parent, exist_ok=True)
 if not data_path.exists():
     raise FileNotFoundError(f"Input folder not found: {data_path}")
 
+
 # ---------- Helpers ----------
 def iter_chunks_words(words, max_words=MAX_WORDS, overlap=OVERLAP):
     """Yield chunk texts using a sliding window on words with overlap."""
@@ -37,10 +38,11 @@ def iter_chunks_words(words, max_words=MAX_WORDS, overlap=OVERLAP):
         # Advance from the actual end to guarantee exact overlap
         start = end - overlap
 
+
 # ---------- State ----------
-title2id = {}                  # title -> doc_id
-next_ord = defaultdict(int)    # doc_id -> next chunk ordinal
-seen_paragraphs = set()        # hashes of normalized paragraphs
+title2id = {}  # title -> doc_id
+next_ord = defaultdict(int)  # doc_id -> next chunk ordinal
+seen_paragraphs = set()  # hashes of normalized paragraphs
 
 docs_written = 0
 chunks_written = 0
@@ -48,9 +50,7 @@ lines_seen = 0
 lines_bad = 0
 
 # ---------- Processing ----------
-with open(out_path_docs, "w", encoding="utf-8") as f_docs, \
-     open(out_path_chunks, "w", encoding="utf-8") as f_chunks:
-
+with open(out_path_docs, "w", encoding="utf-8") as f_docs, open(out_path_chunks, "w", encoding="utf-8") as f_chunks:
     # deterministic order helps reproducibility
     for path in sorted(data_path.glob("*.jsonl")):
         with open(path, "r", encoding="utf-8") as f_in:
@@ -87,13 +87,7 @@ with open(out_path_docs, "w", encoding="utf-8") as f_docs, \
                     if doc_id is None:
                         doc_id = str(uuid.uuid4())
                         title2id[title] = doc_id
-                        doc = {
-                            "id": doc_id,
-                            "title": title,
-                            "lang": LANG,
-                            "url": None,
-                            "meta": {}
-                        }
+                        doc = {"id": doc_id, "title": title, "lang": LANG, "url": None, "meta": {}}
                         f_docs.write(json.dumps(doc, ensure_ascii=False) + "\n")
                         docs_written += 1
 
@@ -113,7 +107,7 @@ with open(out_path_docs, "w", encoding="utf-8") as f_docs, \
                             "lang": LANG,
                             "title": title,
                             "text": chunk_text,
-                            "tokens": None
+                            "tokens": None,
                         }
                         f_chunks.write(json.dumps(chunk, ensure_ascii=False) + "\n")
                         chunks_written += 1

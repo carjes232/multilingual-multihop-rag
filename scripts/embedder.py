@@ -16,13 +16,13 @@ For E5-family models, we add the recommended prefixes:
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 
 _LOCAL_MODEL = None  # lazy-loaded SentenceTransformer
 _LOCAL_MODEL_NAME = None
-_PC = None           # lazy-initialized Pinecone client
+_PC = None  # lazy-initialized Pinecone client
 
 
 def get_backend() -> str:
@@ -55,8 +55,9 @@ def _ensure_local_model():
     global _LOCAL_MODEL, _LOCAL_MODEL_NAME
     desired = _resolve_local_model_name(get_model_name())
     if _LOCAL_MODEL is None or _LOCAL_MODEL_NAME != desired:
-        from sentence_transformers import SentenceTransformer  # lazy import
         import torch
+        from sentence_transformers import SentenceTransformer  # lazy import
+
         device = "cuda" if getattr(torch, "cuda", None) and torch.cuda.is_available() else "cpu"
         _LOCAL_MODEL = SentenceTransformer(desired, device=device)
         _LOCAL_MODEL_NAME = desired
@@ -68,6 +69,7 @@ def _ensure_pc():
     global _PC
     if _PC is None:
         from pinecone import Pinecone  # type: ignore
+
         api_key = os.getenv("PINECONE_API_KEY")
         if not api_key:
             raise RuntimeError("PINECONE_API_KEY not set for Pinecone embedder")

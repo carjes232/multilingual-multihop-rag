@@ -24,15 +24,14 @@ Notes:
 import argparse
 import json
 import os
+import sys
 import time
-from typing import Dict, List, Tuple, Set, Optional
+from typing import Dict, List, Optional, Set
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
-import torch
+
 import embedder as emb
 import retriever as retr
-import sys
 
 # Make stdout/stderr tolerant to non-ASCII on Windows consoles
 try:
@@ -164,7 +163,6 @@ def maybe_load_model():
     return None
 
 
-
 def gold_titles_from_example(ex: dict) -> Set[str]:
     ctx = ex.get("context", {})
     titles = ctx.get("title", [])
@@ -175,16 +173,25 @@ def gold_titles_from_example(ex: dict) -> Set[str]:
 
 def main():
     ap = argparse.ArgumentParser(description="Evaluate retrieval recall@k using HotpotQA titles")
-    ap.add_argument("--file", default="runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl",
-                    help="Hotpot JSONL with fields question/answer/context")
+    ap.add_argument(
+        "--file",
+        default="runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl",
+        help="Hotpot JSONL with fields question/answer/context",
+    )
     ap.add_argument("--k", dest="top_k", type=int, default=5, help="Top-K if --k-list not provided")
-    ap.add_argument("--k-list", type=str, default="", help="Comma-separated list of K values (e.g., '1,5,10'). Overrides --k.")
+    ap.add_argument(
+        "--k-list",
+        type=str,
+        default="",
+        help="Comma-separated list of K values (e.g., '1,5,10'). Overrides --k.",
+    )
     ap.add_argument("--limit", type=int, default=50, help="How many questions to evaluate")
     ap.add_argument("--plot-out", type=str, default=None, help="Directory to save plots/CSV (optional)")
     ap.add_argument("--save-csv", action="store_true", help="Also write recall_by_k.csv when plotting")
     args = ap.parse_args()
 
-    model = maybe_load_model()
+    # optional: load local embedder model; retriever handles embeddings per backend
+    _ = maybe_load_model()
     r = retr.make_retriever()
 
     k_values = parse_k_list(args.k_list, args.top_k)
@@ -256,7 +263,8 @@ def main():
 
             total += 1
             if total <= 5:  # keep a few samples for display
-                examples.append((q, list(gold_titles)[:3], [(h.title, float(h.score)) for h in hits[:3]], rank is not None))
+                top3 = [(h.title, float(h.score)) for h in hits[:3]]
+                examples.append((q, list(gold_titles)[:3], top3, rank is not None))
 
     recall_by_k = {k: (hits_by_k[k] / total) if total else 0.0 for k in k_values}
     mrr = (mrr_sum / total) if total else 0.0
@@ -269,7 +277,12 @@ def main():
     print(f"Evaluated: {total} questions | k-values={k_values}")
     recall_summary = ", ".join([f"R@{k}={recall_by_k[k]:.3f}" for k in sorted(k_values)])
     print(f"{recall_summary} | MRR@{k_max}={mrr:.3f}  (hits={hits_by_k})")
-    print(f"Avg times (ms): encode={avg_times_ms['encode_ms']:.1f}, db={avg_times_ms['db_ms']:.1f}, total={avg_times_ms['total_ms']:.1f}\n")
+    print(
+        "Avg times (ms): "
+        f"encode={avg_times_ms['encode_ms']:.1f}, "
+        f"db={avg_times_ms['db_ms']:.1f}, "
+        f"total={avg_times_ms['total_ms']:.1f}\n"
+    )
 
     print("Examples:")
     for i, (q, gold, retrieved, ok) in enumerate(examples, 1):

@@ -24,14 +24,22 @@ python scripts/eval_models_online.py \
 
 from __future__ import annotations
 
-import argparse, csv, json, os, random, re, time, unicodedata
-from typing import Dict, List, Tuple, Set
+import argparse
+import csv
+import json
+import os
+import random
+import re
+import time
+import unicodedata
+from typing import Dict, List, Set, Tuple
 
 import requests
 
 # optional .env
 try:
     from dotenv import load_dotenv  # type: ignore
+
     load_dotenv()
 except Exception:
     pass
@@ -41,29 +49,37 @@ from api import search_multi, build_prompt, is_yesno_question  # noqa
 
 # -------- plotting (headless matplotlib) ----------------------------
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa
 
 # ===================== OpenRouter config ============================
-OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL",
-                                     "https://openrouter.ai/api/v1")
+OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_CHAT_URL = f"{OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_HTTP_REFERER = os.environ.get("OPENROUTER_HTTP_REFERER", "")
 OPENROUTER_X_TITLE = os.environ.get("OPENROUTER_X_TITLE", "")
 
 # ===================== text / metric helpers ========================
-_THINK_ANY  = re.compile(r"(?is)<\s*(think|thought|thinking)\b[^>]*>.*?<\s*/\s*\1\s*>")
+_THINK_ANY = re.compile(r"(?is)<\s*(think|thought|thinking)\b[^>]*>.*?<\s*/\s*\1\s*>")
 _THINK_OPEN = re.compile(r"(?is)<\s*(think|thought|thinking)\b[^>]*>.*\Z")
-_CODEFENCE  = re.compile(r"(?is)```(?:json|txt|markdown)?\s*(.*?)\s*```")
+_CODEFENCE = re.compile(r"(?is)```(?:json|txt|markdown)?\s*(.*?)\s*```")
 
 YES_SET = {"yes", "yep", "yeah", "true", "correct", "affirmative"}
-NO_SET  = {"no", "nope", "false", "incorrect", "negative"}
+NO_SET = {"no", "nope", "false", "incorrect", "negative"}
 
 BAD_NULLS = {
-    "unknown", "n/a", "na", "none", "null",
-    "cannot answer", "can't answer", "no answer",
-    "unsure", "not sure", "idk"
+    "unknown",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "cannot answer",
+    "can't answer",
+    "no answer",
+    "unsure",
+    "not sure",
+    "idk",
 }
 
 ABBREV = {
@@ -75,30 +91,28 @@ ABBREV = {
     "u.k": "united kingdom",
 }
 
-_ORDINALS = {
-    "1st": "1", "2nd": "2", "3rd": "3",
-    **{f"{i}th": str(i) for i in range(4, 101)}
-}
+_ORDINALS = {"1st": "1", "2nd": "2", "3rd": "3", **{f"{i}th": str(i) for i in range(4, 101)}}
+
 
 def _strip_diacritics(s: str) -> str:
     n = unicodedata.normalize("NFKD", s)
     return "".join(ch for ch in n if not unicodedata.combining(ch))
 
+
 def _apply_abbrev(s: str) -> str:
     def repl(m):
         tok = m.group(0).lower()
         return ABBREV.get(tok, tok)
+
     return re.sub(r"\b[a-z.]{2,}\b", repl, s, flags=re.I)
+
 
 def normalize_text(s: str) -> str:
     if s is None:
         return ""
     s = _strip_diacritics(s)
     s = _apply_abbrev(s)
-    s = (s.replace("–", "-")
-           .replace("—", "-")
-           .replace("’", "'")
-           .lower())
+    s = s.replace("–", "-").replace("—", "-").replace("’", "'").lower()
     # collapse possessive
     s = re.sub(r"\b([a-z0-9]+)'s\b", r"\1", s)
     # ordinals → cardinals
@@ -119,10 +133,13 @@ def normalize_text(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
+
 def f1_score(pred: str, gold: str) -> float:
     pt, gt = normalize_text(pred).split(), normalize_text(gold).split()
-    if not pt and not gt: return 1.0
-    if not pt or not gt: return 0.0
+    if not pt and not gt:
+        return 1.0
+    if not pt or not gt:
+        return 0.0
     common, overlap = {}, 0
     for t in pt:
         common[t] = common.get(t, 0) + 1
@@ -130,9 +147,11 @@ def f1_score(pred: str, gold: str) -> float:
         if common.get(t, 0) > 0:
             overlap += 1
             common[t] -= 1
-    if overlap == 0: return 0.0
+    if overlap == 0:
+        return 0.0
     p, r = overlap / len(pt), overlap / len(gt)
     return 2 * p * r / (p + r)
+
 
 def _name_like_equiv(p: str, g: str) -> bool:
     """
@@ -140,12 +159,15 @@ def _name_like_equiv(p: str, g: str) -> bool:
     """
     pt = [t for t in p.split() if t not in {"jr", "sr"}]
     gt = [t for t in g.split() if t not in {"jr", "sr"}]
-    if not pt or not gt: return False
-    if len(pt) > 5 or len(gt) > 5: return False
+    if not pt or not gt:
+        return False
+    if len(pt) > 5 or len(gt) > 5:
+        return False
     # If both have a surname token, require equality
     if pt[-1].isalpha() and gt[-1].isalpha() and pt[-1] == gt[-1]:
         fpt, fgt = pt[0], gt[0]
-        if fpt == fgt: return True
+        if fpt == fgt:
+            return True
         if (len(fpt) == 1 and fgt.startswith(fpt)) or (len(fgt) == 1 and fpt.startswith(fgt)):
             return True
     # If prediction ends with an initial but prefix matches gold's first+middle
@@ -154,10 +176,13 @@ def _name_like_equiv(p: str, g: str) -> bool:
             return True
     return False
 
-_YEAR_RX = re.compile(r'\b(1[5-9]\d{2}|20\d{2})\b')
+
+_YEAR_RX = re.compile(r"\b(1[5-9]\d{2}|20\d{2})\b")
+
 
 def _years(s: str) -> Set[str]:
     return set(_YEAR_RX.findall(s or ""))
+
 
 def exact_match(pred: str, gold: str, *, em_mode: str = "lenient") -> bool:
     """
@@ -172,83 +197,106 @@ def exact_match(pred: str, gold: str, *, em_mode: str = "lenient") -> bool:
     p = normalize_text(pred)
     g = normalize_text(gold)
 
-    if p == g or (not p and not g): return True
-    if g and g in p: return True
-    if (p in YES_SET and g in YES_SET) or (p in NO_SET and g in NO_SET): return True
-    if _name_like_equiv(p, g): return True
+    if p == g or (not p and not g):
+        return True
+    if g and g in p:
+        return True
+    if (p in YES_SET and g in YES_SET) or (p in NO_SET and g in NO_SET):
+        return True
+    if _name_like_equiv(p, g):
+        return True
 
     ps, gs = set(p.split()), set(g.split())
-    if gs and gs.issubset(ps): return True  # gold tokens all present
+    if gs and gs.issubset(ps):
+        return True  # gold tokens all present
 
     if em_mode == "lenient":
         yp, yg = _years(p), _years(g)
         if yp and yg and yp == yg:  # e.g., "1922" vs "October 1922"
             return True
 
-    if f1_score(pred, gold) >= 0.95: return True
+    if f1_score(pred, gold) >= 0.95:
+        return True
     return False
 
+
 def percentile(ms: List[int], p: float) -> int:
-    if not ms: return 0
+    if not ms:
+        return 0
     xs = sorted(ms)
     idx = round((p / 100) * (len(xs) - 1))
     return xs[max(0, min(len(xs) - 1, idx))]
 
+
 def median(nums: List[float]) -> float:
-    if not nums: return 0.0
+    if not nums:
+        return 0.0
     xs = sorted(nums)
     n = len(xs)
     m = n // 2
     return xs[m] if n % 2 else 0.5 * (xs[m - 1] + xs[m])
 
+
 def _strip_think(s: str) -> str:
-    if not s: return ""
+    if not s:
+        return ""
     txt = _THINK_ANY.sub("", s)
     txt = _THINK_OPEN.sub("", txt)
     mcf = _CODEFENCE.search(txt)
-    if mcf: txt = mcf.group(1)
+    if mcf:
+        txt = mcf.group(1)
     return txt.strip()
+
 
 # very loose JSON "final:" finder (works even if model never closes quotes/braces)
 _FINAL_ANY = re.compile(r'(?is)["\']?\s*final\s*["\']?\s*:\s*["\']?\s*([^\n\r"}]+)')
 
+
 def _salvage_from_text(t: str) -> str:
     # Try range like 1986-2013 or 1986 to 2013
-    m = re.search(r'\b(\d{3,4})\s*(?:-|to|–|—)\s*(\d{2,4})\b', t)
-    if m: return f"{m.group(1)}-{m.group(2)}"
-    # Try Month YYYY
-    m = re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{4}\b', t, re.I)
+    m = re.search(r"\b(\d{3,4})\s*(?:-|to|–|—)\s*(\d{2,4})\b", t)
     if m:
-        span = t[m.start():m.end()]
+        return f"{m.group(1)}-{m.group(2)}"
+    # Try Month YYYY
+    m = re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{4}\b", t, re.I)
+    if m:
+        span = t[m.start() : m.end()]
         return re.sub(r"\s+", " ", span.strip())
     # Single year
     m = _YEAR_RX.search(t)
-    if m: return m.group(1)
+    if m:
+        return m.group(1)
     # Proper-looking short noun chunk
-    m = re.search(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b', t)
-    if m: return m.group(1)
+    m = re.search(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b", t)
+    if m:
+        return m.group(1)
     return ""
+
 
 def _post_prune(cand: str) -> str:
     cand = re.split(r"\s*\(", cand, 1)[0].strip()
     cand = re.split(r"\s+\b(?:is|are|was|were)\b\s+", cand, 1)[0].strip()
     return cand
 
+
 def _expand_initials_from_raw(cand: str, raw: str) -> str:
     """
     If cand looks like 'First J' and raw contains 'First J. Surname',
     return the completed name; else return cand unchanged.
     """
-    if not cand or not raw: return cand
-    m = re.match(r'^\s*([A-Z][a-z]+)\s+([A-Z])\.?\s*$', cand)
-    if not m: return cand
+    if not cand or not raw:
+        return cand
+    m = re.match(r"^\s*([A-Z][a-z]+)\s+([A-Z])\.?\s*$", cand)
+    if not m:
+        return cand
     first, init = m.group(1), m.group(2)
-    rx = re.compile(rf'\b{re.escape(first)}\s+{re.escape(init)}\.?\s+([A-Z][a-z]+)\b')
+    rx = re.compile(rf"\b{re.escape(first)}\s+{re.escape(init)}\.?\s+([A-Z][a-z]+)\b")
     m2 = rx.search(raw)
     if m2:
         surname = m2.group(1)
         return f"{first} {init}. {surname}"
     return cand
+
 
 def _shorten_final(s: str, allow_unknown_salvage: bool = True) -> str:
     """
@@ -259,13 +307,15 @@ def _shorten_final(s: str, allow_unknown_salvage: bool = True) -> str:
       * trailing 'is/are/was/were...' definitions
       * parenthetical tails
     """
-    if not s: return ""
+    if not s:
+        return ""
 
     t = _strip_think(s)
 
     # fast-path yes/no
     m_yn = re.match(r"\s*(yes|no)\b", t, flags=re.I)
-    if m_yn: return m_yn.group(1).lower()
+    if m_yn:
+        return m_yn.group(1).lower()
 
     # strict JSON up to first }
     j_end = t.find("}") + 1
@@ -286,7 +336,7 @@ def _shorten_final(s: str, allow_unknown_salvage: bool = True) -> str:
     # loose "final:"
     m = _FINAL_ANY.search(t)
     if m:
-        cand = _post_prune(m.group(1).strip(' "\''))
+        cand = _post_prune(m.group(1).strip(" \"'"))
         cand = _expand_initials_from_raw(cand, t)
         if cand.lower() in BAD_NULLS and allow_unknown_salvage:
             alt = _salvage_from_text(t)
@@ -304,6 +354,7 @@ def _shorten_final(s: str, allow_unknown_salvage: bool = True) -> str:
         return alt or "unknown"
     return res or "unknown"
 
+
 # ===================== OpenRouter wrapper ===========================
 def _openrouter_headers() -> Dict[str, str]:
     if not OPENROUTER_API_KEY:
@@ -317,6 +368,7 @@ def _openrouter_headers() -> Dict[str, str]:
     if OPENROUTER_X_TITLE:
         headers["X-Title"] = OPENROUTER_X_TITLE
     return headers
+
 
 def call_openrouter_short(
     model: str,
@@ -343,20 +395,31 @@ def call_openrouter_short(
         "Do NOT output placeholders like 'unknown', 'n/a', or 'unsure'."
     )
     yn_sys_plain = (
-        "Answer with ONLY one word: yes or no. "
-        "If unsure, choose the most likely. Do NOT output anything else."
+        "Answer with ONLY one word: yes or no. " "If unsure, choose the most likely. Do NOT output anything else."
     )
 
     trials = [
-        {"model": model, "messages": [{"role": "system", "content": base_sys_json}] + messages,
-         "temperature": max(0.0, temperature), "max_tokens": max(16, max_tokens)},
-        {"model": model, "messages": [{"role": "system", "content": base_sys_plain}] + messages,
-         "temperature": max(0.0, temperature), "max_tokens": max(16, max_tokens)},
+        {
+            "model": model,
+            "messages": [{"role": "system", "content": base_sys_json}] + messages,
+            "temperature": max(0.0, temperature),
+            "max_tokens": max(16, max_tokens),
+        },
+        {
+            "model": model,
+            "messages": [{"role": "system", "content": base_sys_plain}] + messages,
+            "temperature": max(0.0, temperature),
+            "max_tokens": max(16, max_tokens),
+        },
     ]
     if yn:
         trials.append(
-            {"model": model, "messages": [{"role": "system", "content": yn_sys_plain}] + messages,
-             "temperature": 0.0, "max_tokens": 4}
+            {
+                "model": model,
+                "messages": [{"role": "system", "content": yn_sys_plain}] + messages,
+                "temperature": 0.0,
+                "max_tokens": 4,
+            }
         )
 
     headers = _openrouter_headers()
@@ -365,10 +428,7 @@ def call_openrouter_short(
 
     for payload in trials:
         try:
-            r = requests.post(OPENROUTER_CHAT_URL,
-                              headers=headers,
-                              json=payload,
-                              timeout=timeout)
+            r = requests.post(OPENROUTER_CHAT_URL, headers=headers, json=payload, timeout=timeout)
         except requests.RequestException:
             continue
         if r.status_code != 200:
@@ -383,6 +443,7 @@ def call_openrouter_short(
             return short, int((time.time() - start) * 1000)
 
     return (last_content or "unknown"), int((time.time() - start) * 1000)
+
 
 # ===================== plotting helpers ============================
 def bar_chart(x, a, b, la, lb, title, out, ylim=None):
@@ -403,6 +464,7 @@ def bar_chart(x, a, b, la, lb, title, out, ylim=None):
     fig.savefig(out, dpi=160)
     plt.close(fig)
 
+
 def histogram(values, bins, title, out):
     fig = plt.figure(figsize=(10, 6))
     ax = fig.gca()
@@ -420,8 +482,10 @@ def histogram(values, bins, title, out):
     fig.savefig(out, dpi=160)
     plt.close(fig)
 
+
 def sanitize(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]", "_", name)
+
 
 # ===================== main ========================================
 def main() -> None:
@@ -440,8 +504,12 @@ def main() -> None:
     ap.add_argument("--max-tokens", type=int, default=64)
     ap.add_argument("--norag-temperature", type=float, default=0.0)
     ap.add_argument("--norag-max-tokens", type=int, default=48)
-    ap.add_argument("--em-mode", choices=["strict", "lenient"], default="lenient",
-                    help="lenient counts EM true for matching year(s) and clear initial→surname equivalence.")
+    ap.add_argument(
+        "--em-mode",
+        choices=["strict", "lenient"],
+        default="lenient",
+        help="lenient counts EM true for matching year(s) and clear initial→surname equivalence.",
+    )
     ap.add_argument("--write-errors", action="store_true")
     args = ap.parse_args()
 
@@ -475,13 +543,29 @@ def main() -> None:
     summary_csv = os.path.join(args.out_dir, "model_summaries_online.csv")
     with open(summary_csv, "w", newline="", encoding="utf-8") as sf:
         sw = csv.writer(sf)
-        sw.writerow([
-            "model", "n",
-            "em_rag", "f1_rag", "p50_rag_ms", "p95_rag_ms",
-            "em_norag", "f1_norag", "p50_norag_ms", "p95_norag_ms",
-            "em_rag_only", "em_norag_only", "em_both_true", "em_both_false",
-            "f1_gain_avg", "f1_gain_median", "f1_gain_pos", "f1_gain_neg", "f1_gain_zero",
-        ])
+        sw.writerow(
+            [
+                "model",
+                "n",
+                "em_rag",
+                "f1_rag",
+                "p50_rag_ms",
+                "p95_rag_ms",
+                "em_norag",
+                "f1_norag",
+                "p50_norag_ms",
+                "p95_norag_ms",
+                "em_rag_only",
+                "em_norag_only",
+                "em_both_true",
+                "em_both_false",
+                "f1_gain_avg",
+                "f1_gain_median",
+                "f1_gain_pos",
+                "f1_gain_neg",
+                "f1_gain_zero",
+            ]
+        )
 
         model_names: List[str] = []
         em_rag_list: List[float] = []
@@ -561,33 +645,39 @@ def main() -> None:
                 gains.append(fr - fn)
 
                 # EM breakdown counts
-                if er and en: bt += 1
-                elif er and not en: br += 1
-                elif en and not er: bn += 1
-                else: bf += 1
+                if er and en:
+                    bt += 1
+                elif er and not en:
+                    br += 1
+                elif en and not er:
+                    bn += 1
+                else:
+                    bf += 1
 
                 # wrong cases record
                 if not er or not en:
                     which = "both" if (not er and not en) else ("rag" if not er else "norag")
-                    error_entries.append({
-                        "question": q,
-                        "gold": gold,
-                        "prediction_rag_raw": pr_raw,
-                        "prediction_rag": pr,
-                        "prediction_norag_raw": pn_raw,
-                        "prediction_norag": pn,
-                        "em_rag": er,
-                        "em_norag": en,
-                        "f1_rag": round(fr, 3),
-                        "f1_norag": round(fn, 3),
-                        "latency_ms_rag": msr,
-                        "latency_ms_norag": msn,
-                        "which_wrong": which,
-                        "model": model,
-                        "norm_pred_rag": normalize_text(pr),
-                        "norm_pred_norag": normalize_text(pn),
-                        "norm_gold": normalize_text(gold),
-                    })
+                    error_entries.append(
+                        {
+                            "question": q,
+                            "gold": gold,
+                            "prediction_rag_raw": pr_raw,
+                            "prediction_rag": pr,
+                            "prediction_norag_raw": pn_raw,
+                            "prediction_norag": pn,
+                            "em_rag": er,
+                            "em_norag": en,
+                            "f1_rag": round(fr, 3),
+                            "f1_norag": round(fn, 3),
+                            "latency_ms_rag": msr,
+                            "latency_ms_norag": msn,
+                            "which_wrong": which,
+                            "model": model,
+                            "norm_pred_rag": normalize_text(pr),
+                            "norm_pred_norag": normalize_text(pn),
+                            "norm_gold": normalize_text(gold),
+                        }
+                    )
 
                 n += 1
 
@@ -620,14 +710,29 @@ def main() -> None:
             per_model_gains[model] = gains[:]
             all_gains.extend(gains)
 
-            sw.writerow([
-                model, n,
-                round(em_r, 3), round(f1_r, 3), p50_r, p95_r,
-                round(em_n, 3), round(f1_n, 3), p50_n, p95_n,
-                br, bn, bt, bf,
-                round(sum(gains) / n, 3), round(median(gains), 3),
-                pos, neg, zer,
-            ])
+            sw.writerow(
+                [
+                    model,
+                    n,
+                    round(em_r, 3),
+                    round(f1_r, 3),
+                    p50_r,
+                    p95_r,
+                    round(em_n, 3),
+                    round(f1_n, 3),
+                    p50_n,
+                    p95_n,
+                    br,
+                    bn,
+                    bt,
+                    bf,
+                    round(sum(gains) / n, 3),
+                    round(median(gains), 3),
+                    pos,
+                    neg,
+                    zer,
+                ]
+            )
 
             if args.write_errors:
                 ep = os.path.join(args.out_dir, f"errors_online_{sanitize(model)}.jsonl")
@@ -637,15 +742,35 @@ def main() -> None:
                 all_errors_by_model[model] = error_entries
 
     # ---------- plots ----------
-    bar_chart(model_names, em_rag_list, em_nr_list,
-              "RAG", "No-RAG", "Exact-Match (online)",
-              os.path.join(args.out_dir, "em_online.png"), ylim=(0, 1))
-    bar_chart(model_names, f1_rag_list, f1_nr_list,
-              "RAG", "No-RAG", "F1 (online)",
-              os.path.join(args.out_dir, "f1_online.png"), ylim=(0, 1))
-    bar_chart(model_names, p50_rag_list, p50_nr_list,
-              "RAG", "No-RAG", "Latency p50 (ms, online)",
-              os.path.join(args.out_dir, "latency_p50_online.png"))
+    bar_chart(
+        model_names,
+        em_rag_list,
+        em_nr_list,
+        "RAG",
+        "No-RAG",
+        "Exact-Match (online)",
+        os.path.join(args.out_dir, "em_online.png"),
+        ylim=(0, 1),
+    )
+    bar_chart(
+        model_names,
+        f1_rag_list,
+        f1_nr_list,
+        "RAG",
+        "No-RAG",
+        "F1 (online)",
+        os.path.join(args.out_dir, "f1_online.png"),
+        ylim=(0, 1),
+    )
+    bar_chart(
+        model_names,
+        p50_rag_list,
+        p50_nr_list,
+        "RAG",
+        "No-RAG",
+        "Latency p50 (ms, online)",
+        os.path.join(args.out_dir, "latency_p50_online.png"),
+    )
 
     # EM breakdown stacked
     fig = plt.figure(figsize=(11, 6))
@@ -667,19 +792,27 @@ def main() -> None:
     plt.close(fig)
 
     hb_bins = max(5, int(len(all_gains) ** 0.5)) if all_gains else 5
-    histogram(all_gains, hb_bins,
-              "F1 gain histogram (RAG − No-RAG, online)",
-              os.path.join(args.out_dir, "f1_gain_hist_online.png"))
+    histogram(
+        all_gains,
+        hb_bins,
+        "F1 gain histogram (RAG − No-RAG, online)",
+        os.path.join(args.out_dir, "f1_gain_hist_online.png"),
+    )
 
     if args.write_errors:
-        with open(os.path.join(args.out_dir, "all_errors_by_model_online.json"),
-                  "w", encoding="utf-8") as af:
+        with open(os.path.join(args.out_dir, "all_errors_by_model_online.json"), "w", encoding="utf-8") as af:
             json.dump(all_errors_by_model, af, ensure_ascii=False, indent=2)
 
     print(f"[✓] Wrote summary → {summary_csv}")
-    for p in ("em_online.png", "f1_online.png", "latency_p50_online.png",
-              "em_breakdown_online.png", "f1_gain_hist_online.png"):
+    for p in (
+        "em_online.png",
+        "f1_online.png",
+        "latency_p50_online.png",
+        "em_breakdown_online.png",
+        "f1_gain_hist_online.png",
+    ):
         print("   └─", os.path.abspath(os.path.join(args.out_dir, p)))
+
 
 if __name__ == "__main__":
     main()
