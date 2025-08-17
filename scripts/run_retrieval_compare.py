@@ -33,6 +33,7 @@ import sys
 from typing import Dict, List
 
 from dotenv import load_dotenv
+
 load_dotenv()  # <-- make .env available to this script and its subprocesses
 
 
@@ -55,14 +56,22 @@ def ensure_multilingual_set(in_file: str, out_file: str, model: str) -> None:
         return
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
     print(f"[info] Building multilingual set: {out_file}")
-    code, _, _ = run([
-        sys.executable, "scripts/make_multilingual_eval_set.py",
-        "--in-file", in_file,
-        "--out-file", out_file,
-        "--n", "30",
-        "--seed", "42",
-        "--model", model,
-    ])
+    code, _, _ = run(
+        [
+            sys.executable,
+            "scripts/make_multilingual_eval_set.py",
+            "--in-file",
+            in_file,
+            "--out-file",
+            out_file,
+            "--n",
+            "30",
+            "--seed",
+            "42",
+            "--model",
+            model,
+        ]
+    )
     if code != 0:
         raise SystemExit("Failed to build multilingual set (OpenRouter config required)")
 
@@ -95,42 +104,77 @@ def split_multilingual_by_lang(all_path: str) -> Dict[str, str]:
     return outs
 
 
-def eval_retrieval_for(env_overrides: Dict[str, str], file_path: str, out_dir: str,
-                       k_list: str = "1,5,10", limit: int = 200) -> None:
+def eval_retrieval_for(
+    env_overrides: Dict[str, str], file_path: str, out_dir: str, k_list: str = "1,5,10", limit: int = 200
+) -> None:
     os.makedirs(out_dir, exist_ok=True)
-    code, _, _ = run([
-        sys.executable, "scripts/eval_retrieval.py",
-        "--file", file_path,
-        "--k-list", k_list,
-        "--limit", str(limit),
-        "--plot-out", out_dir,
-        "--save-csv",
-    ], env_overrides)
+    code, _, _ = run(
+        [
+            sys.executable,
+            "scripts/eval_retrieval.py",
+            "--file",
+            file_path,
+            "--k-list",
+            k_list,
+            "--limit",
+            str(limit),
+            "--plot-out",
+            out_dir,
+            "--save-csv",
+        ],
+        env_overrides,
+    )
     if code != 0:
         raise SystemExit(f"eval_retrieval failed for {file_path} -> {out_dir}")
 
 
 def multilingual_overlap_for(env_overrides: Dict[str, str], out_dir: str, k: int = 5, limit: int = 3) -> None:
     os.makedirs(out_dir, exist_ok=True)
-    code, _, _ = run([
-        sys.executable, "scripts/eval_multilingual_retrieval.py",
-        "--k", str(k),
-        "--limit", str(limit),
-        "--out-dir", out_dir,
-        "--save-csv",
-    ], env_overrides)
+    code, _, _ = run(
+        [
+            sys.executable,
+            "scripts/eval_multilingual_retrieval.py",
+            "--k",
+            str(k),
+            "--limit",
+            str(limit),
+            "--out-dir",
+            out_dir,
+            "--save-csv",
+        ],
+        env_overrides,
+    )
     if code != 0:
         raise SystemExit(f"multilingual overlap failed for {out_dir}")
 
 
 def main():
     ap = argparse.ArgumentParser(description="Compare local vs Pinecone retrieval (EN/ES/PT)")
-    ap.add_argument("--file-en", default="runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl", help="English eval JSONL")
-    ap.add_argument("--file-multilingual", default="runtime/data/raw/hotpot/hotpot_multilingual_10.jsonl",
-                    help="Multilingual (EN/ES/PT) JSONL; will be created with --build-multilingual if missing")
-    ap.add_argument("--build-multilingual", action="store_true", help="Create multilingual set if missing (requires OpenRouter)")
-    ap.add_argument("--openrouter-model", default="google/gemini-2.0-flash-001", help="Model for translation when building set")
-    ap.add_argument("--out-root", default="runtime/evals_multi/retrieval", help="Output root directory for plots/CSVs")
+    ap.add_argument(
+        "--file-en",
+        default="runtime/data/raw/hotpot/hotpot_validation_1pct.jsonl",
+        help="English eval JSONL",
+    )
+    ap.add_argument(
+        "--file-multilingual",
+        default="runtime/data/raw/hotpot/hotpot_multilingual_10.jsonl",
+        help=("Multilingual (EN/ES/PT) JSONL; will be created with --build-multilingual if missing"),
+    )
+    ap.add_argument(
+        "--build-multilingual",
+        action="store_true",
+        help="Create multilingual set if missing (requires OpenRouter)",
+    )
+    ap.add_argument(
+        "--openrouter-model",
+        default="google/gemini-2.0-flash-001",
+        help="Model for translation when building set",
+    )
+    ap.add_argument(
+        "--out-root",
+        default="runtime/evals_multi/retrieval",
+        help="Output root directory for plots/CSVs",
+    )
     ap.add_argument("--skip-pinecone", action="store_true", help="Skip Pinecone runs (if not configured)")
     ap.add_argument("--skip-local", action="store_true", help="Skip local (pgvector) runs (if DB not available)")
     ap.add_argument("--k-list", default="1,5,10", help="k list for recall evals")
@@ -164,7 +208,9 @@ def main():
     # Run Local
     if not args.skip_local:
         eval_retrieval_for(env_local, args.file_en, os.path.join(args.out_root, "local_en"), args.k_list, args.limit_en)
-        eval_retrieval_for(env_local, file_en_multi, os.path.join(args.out_root, "local_en"), args.k_list, args.limit_multi)
+        eval_retrieval_for(
+            env_local, file_en_multi, os.path.join(args.out_root, "local_en"), args.k_list, args.limit_multi
+        )
         eval_retrieval_for(env_local, file_es, os.path.join(args.out_root, "local_es"), args.k_list, args.limit_multi)
         eval_retrieval_for(env_local, file_pt, os.path.join(args.out_root, "local_pt"), args.k_list, args.limit_multi)
         multilingual_overlap_for(env_local, os.path.join(args.out_root, "local"))
@@ -177,7 +223,9 @@ def main():
         pc_ns = os.getenv("PINECONE_NAMESPACE", "__default__") or "__default__"
         print(f"[info] Pinecone index={pc_idx} namespace={pc_ns}")
         eval_retrieval_for(env_pc, args.file_en, os.path.join(args.out_root, "pinecone_en"), args.k_list, args.limit_en)
-        eval_retrieval_for(env_pc, file_en_multi, os.path.join(args.out_root, "pinecone_en"), args.k_list, args.limit_multi)
+        eval_retrieval_for(
+            env_pc, file_en_multi, os.path.join(args.out_root, "pinecone_en"), args.k_list, args.limit_multi
+        )
         eval_retrieval_for(env_pc, file_es, os.path.join(args.out_root, "pinecone_es"), args.k_list, args.limit_multi)
         eval_retrieval_for(env_pc, file_pt, os.path.join(args.out_root, "pinecone_pt"), args.k_list, args.limit_multi)
         multilingual_overlap_for(env_pc, os.path.join(args.out_root, "pinecone"))

@@ -1,0 +1,6 @@
+# Optional pip constraints file for deterministic installs.
+# Use pip-tools to (re)generate on your platform:
+#   pip install pip-tools
+#   pip-compile --generate-hashes -o constraints.txt requirements.txt
+#
+# CI and Makefile will use this file automatically if present.

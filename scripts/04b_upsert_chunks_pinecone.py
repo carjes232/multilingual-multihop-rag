@@ -22,17 +22,14 @@ Requirements:
   export PINECONE_API_KEY=...
 """
 
+import argparse
+import json
 import os
 import sys
-import json
 import time
-import argparse
 from typing import Dict, Iterable, List
+
 import dotenv
-
-dotenv.load_dotenv()
-
-# Pinecone SDK v6+ (integrated inference)
 from pinecone import Pinecone
 
 # Optional typed helpers (SDK accepts plain strings too; import may fail on older SDKs)
@@ -41,10 +38,14 @@ try:
 except Exception:  # pragma: no cover
     IndexEmbed = None  # we'll pass a plain dict instead if not available
 
+# Load environment after imports
+dotenv.load_dotenv()
+
 
 # ----------------------------
 # Utilities
 # ----------------------------
+
 
 def sanitize_value(v):
     # Allowed: str, int/float, bool, list[str]
@@ -57,6 +58,7 @@ def sanitize_value(v):
         return [str(x) for x in v]
     # dicts or other types → store as JSON string
     return json.dumps(v, ensure_ascii=False)
+
 
 def eprint(*a, **k):
     print(*a, file=sys.stderr, **k)
@@ -103,8 +105,17 @@ def to_record(
 
     # Keys to skip entirely (big or irrelevant for metadata)
     SKIP_KEYS = {
-        picked_text_key, "embedding", "values", "vector", "dense", "sparse",
-        "bm25", "score", "scores", "similarity", "distance"
+        picked_text_key,
+        "embedding",
+        "values",
+        "vector",
+        "dense",
+        "sparse",
+        "bm25",
+        "score",
+        "scores",
+        "similarity",
+        "distance",
     }
 
     for k, v in chunk.items():
@@ -144,6 +155,7 @@ def ensure_integrated_index(
     If the index exists without embed config and `configure_existing` is True,
     converts it to an integrated index.
     """
+
     # Helper to create the embed config as either typed object or dict
     def mk_embed(model: str, text_field: str, metric: str):
         if IndexEmbed is not None:
@@ -161,8 +173,8 @@ def ensure_integrated_index(
         eprint(f"[create] Creating integrated index '{index_name}' (cloud={cloud}, region={region}, model={model}) ...")
         desc = pc.create_index_for_model(
             name=index_name,
-            cloud=cloud,         # e.g. "aws" or "gcp"
-            region=region,       # e.g. "us-east-1"
+            cloud=cloud,  # e.g. "aws" or "gcp"
+            region=region,  # e.g. "us-east-1"
             embed=mk_embed(model, text_field, metric),
         )
         return getattr(desc, "host", desc.get("host") if isinstance(desc, dict) else None)
@@ -194,8 +206,10 @@ def ensure_integrated_index(
         # Optional sanity check: warn if field_map mismatch
         fm = embed_cfg.get("field_map") if isinstance(embed_cfg, dict) else getattr(embed_cfg, "field_map", {})
         if fm and fm.get("text") != text_field:
-            eprint(f"[warn] This index maps text -> '{fm.get('text')}', but you passed --text-field '{text_field}'. "
-                   f"Upserts will read from '{fm.get('text')}'. Either adjust --text-field or reconfigure the index.")
+            eprint(
+                f"[warn] This index maps text -> '{fm.get('text')}', but you passed --text-field '{text_field}'. "
+                f"Upserts will read from '{fm.get('text')}'. Either adjust --text-field or reconfigure the index."
+            )
 
     return host
 
@@ -207,21 +221,23 @@ def main():
     ap = argparse.ArgumentParser(description="Upsert text chunks to Pinecone using integrated embedding.")
 
     ap.add_argument("--index-name", default=os.getenv("PINECONE_INDEX", "rag-integrated"))
-    ap.add_argument("--namespace",  default=os.getenv("PINECONE_NAMESPACE", "__default__"))
-    ap.add_argument("--chunks",     required=True, help="Path to JSONL with chunk dicts")
+    ap.add_argument("--namespace", default=os.getenv("PINECONE_NAMESPACE", "__default__"))
+    ap.add_argument("--chunks", required=True, help="Path to JSONL with chunk dicts")
 
-    ap.add_argument("--model",      default=os.getenv("EMBEDDING_MODEL", "multilingual-e5-large"))
+    ap.add_argument("--model", default=os.getenv("EMBEDDING_MODEL", "multilingual-e5-large"))
     ap.add_argument("--text-field", default=os.getenv("TEXT_FIELD", "chunk_text"))
 
-    ap.add_argument("--metric",     default=os.getenv("PINECONE_METRIC", "cosine"), choices=["cosine", "dotproduct"])
-    ap.add_argument("--cloud",      default=os.getenv("PINECONE_CLOUD", "aws"))
-    ap.add_argument("--region",     default=os.getenv("PINECONE_REGION", "us-east-1"))
+    ap.add_argument("--metric", default=os.getenv("PINECONE_METRIC", "cosine"), choices=["cosine", "dotproduct"])
+    ap.add_argument("--cloud", default=os.getenv("PINECONE_CLOUD", "aws"))
+    ap.add_argument("--region", default=os.getenv("PINECONE_REGION", "us-east-1"))
 
     ap.add_argument("--batch-size", type=int, default=int(os.getenv("PINECONE_MAX_BATCH", "96")))
-    ap.add_argument("--configure-existing", action="store_true",
-                    help="If the index exists without embed config, convert it to integrated")
+    ap.add_argument(
+        "--configure-existing",
+        action="store_true",
+        help="If the index exists without embed config, convert it to integrated",
+    )
     args = ap.parse_args()
-
 
     api_key = os.getenv("PINECONE_API_KEY")
     if not api_key:
@@ -273,7 +289,10 @@ def main():
                 msg = str(e)
                 # Common misconfig error
                 if "Integrated inference is not configured" in msg:
-                    eprint("\nERROR: Index is not integrated. Re-run with --configure-existing or use a new --index-name.")
+                    eprint(
+                        "\nERROR: Index is not integrated. Re-run with --configure-existing "
+                        "or use a new --index-name."
+                    )
                     raise
                 # Too large / 400 / 413 type errors -> shrink batch
                 if "Batch size exceeds" in msg or "Payload Too Large" in msg or "2 MB" in msg or "413" in msg:
@@ -289,7 +308,7 @@ def main():
                         break
                 # For 429s / transient
                 if "429" in msg or "rate limit" in msg or "temporarily" in msg:
-                    sleep_s = 2 ** attempt
+                    sleep_s = 2**attempt
                     eprint(f"[retry] {msg} (attempt {attempt+1}/5). Sleeping {sleep_s}s ...")
                     time.sleep(sleep_s)
                     continue

@@ -1,6 +1,6 @@
 [tool.ruff]
-line-length = 100
-target-version = "py310"
+line-length = 120
+target-version = "py311"
 src = ["scripts"]
 exclude = [".venv", "runtime", "__pycache__"]
 
@@ -10,9 +10,11 @@ select = [
     "F",  # pyflakes
     "I",  # isort
 ]
-ignore = []
+ignore = [
+    "E701",  # multiple statements on one line (colon)
+    "E702",  # multiple statements on one line (semicolon)
+]
 
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-

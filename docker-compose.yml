@@ -1,24 +1,30 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  db:
-    image: pgvector/pgvector:pg16
-    container_name: rag-pgvector
-    restart: unless-stopped
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "5432:5432"
+      - "8000:8000"
     environment:
-      POSTGRES_DB: ragdb
-      POSTGRES_USER: rag
-      POSTGRES_PASSWORD: rag
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rag -d ragdb"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
+      - EMBEDDING_MODEL=BAAI/bge-m3
+      - API_TOKEN=your_api_token_here
+      - RATE_LIMIT=5/minute
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - MAX_REQUEST_SIZE=1024
+      - LOG_LEVEL=INFO
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./runtime:/app/runtime
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/ollama/data
 
 volumes:
-  pgdata:
-
+  ollama_data:

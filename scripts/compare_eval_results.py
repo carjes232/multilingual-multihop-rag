@@ -40,16 +40,30 @@ from typing import Dict, List, Tuple
 
 # headless plotting
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-
 COLUMNS = [
-    "model", "n",
-    "em_rag", "f1_rag", "p50_rag_ms", "p95_rag_ms",
-    "em_norag", "f1_norag", "p50_norag_ms", "p95_norag_ms",
-    "em_rag_only", "em_norag_only", "em_both_true", "em_both_false",
-    "f1_gain_avg", "f1_gain_median", "f1_gain_pos", "f1_gain_neg", "f1_gain_zero",
+    "model",
+    "n",
+    "em_rag",
+    "f1_rag",
+    "p50_rag_ms",
+    "p95_rag_ms",
+    "em_norag",
+    "f1_norag",
+    "p50_norag_ms",
+    "p95_norag_ms",
+    "em_rag_only",
+    "em_norag_only",
+    "em_both_true",
+    "em_both_false",
+    "f1_gain_avg",
+    "f1_gain_median",
+    "f1_gain_pos",
+    "f1_gain_neg",
+    "f1_gain_zero",
 ]
 
 
@@ -90,16 +104,30 @@ def read_summary_csv(path: str) -> Dict[str, Dict[str, float]]:
                 if k == "model":
                     continue
                 v = row.get(k, "0")
-                rec[k] = float(_si(v)) if k in {"n", "p50_rag_ms", "p95_rag_ms", "p50_norag_ms", "p95_norag_ms",
-                                                "em_rag_only", "em_norag_only", "em_both_true", "em_both_false",
-                                                "f1_gain_pos", "f1_gain_neg", "f1_gain_zero"} else _sf(v)
+                rec[k] = (
+                    float(_si(v))
+                    if k
+                    in {
+                        "n",
+                        "p50_rag_ms",
+                        "p95_rag_ms",
+                        "p50_norag_ms",
+                        "p95_norag_ms",
+                        "em_rag_only",
+                        "em_norag_only",
+                        "em_both_true",
+                        "em_both_false",
+                        "f1_gain_pos",
+                        "f1_gain_neg",
+                        "f1_gain_zero",
+                    }
+                    else _sf(v)
+                )
             out[model] = rec
     return out
 
 
-def write_combined_long(local: Dict[str, Dict[str, float]],
-                        online: Dict[str, Dict[str, float]],
-                        out_csv: str) -> None:
+def write_combined_long(local: Dict[str, Dict[str, float]], online: Dict[str, Dict[str, float]], out_csv: str) -> None:
     with open(out_csv, "w", newline="", encoding="utf-8") as fd:
         wr = csv.writer(fd)
         wr.writerow(["env", *COLUMNS])
@@ -159,18 +187,29 @@ def env_summary(rows: Dict[str, Dict[str, float]]) -> Dict[str, float]:
     }
 
 
-def write_env_summary(local: Dict[str, Dict[str, float]],
-                      online: Dict[str, Dict[str, float]],
-                      out_csv: str) -> Dict[str, Dict[str, float]]:
+def write_env_summary(
+    local: Dict[str, Dict[str, float]], online: Dict[str, Dict[str, float]], out_csv: str
+) -> Dict[str, Dict[str, float]]:
     s_local = env_summary(local)
     s_online = env_summary(online)
     fields = [
-        "env", "model_count", "total_n",
-        "em_rag_mean", "em_rag_wmean", "f1_rag_mean", "f1_rag_wmean",
-        "p50_rag_ms_mean", "p50_rag_ms_wmean",
-        "em_norag_mean", "em_norag_wmean", "f1_norag_mean", "f1_norag_wmean",
-        "p50_norag_ms_mean", "p50_norag_ms_wmean",
-        "f1_gain_avg_mean", "f1_gain_avg_wmean",
+        "env",
+        "model_count",
+        "total_n",
+        "em_rag_mean",
+        "em_rag_wmean",
+        "f1_rag_mean",
+        "f1_rag_wmean",
+        "p50_rag_ms_mean",
+        "p50_rag_ms_wmean",
+        "em_norag_mean",
+        "em_norag_wmean",
+        "f1_norag_mean",
+        "f1_norag_wmean",
+        "p50_norag_ms_mean",
+        "p50_norag_ms_wmean",
+        "f1_gain_avg_mean",
+        "f1_gain_avg_wmean",
     ]
     with open(out_csv, "w", newline="", encoding="utf-8") as fd:
         wr = csv.writer(fd)
@@ -180,54 +219,98 @@ def write_env_summary(local: Dict[str, Dict[str, float]],
     return {"local": s_local, "online": s_online}
 
 
-def overlap_by_model(local: Dict[str, Dict[str, float]],
-                     online: Dict[str, Dict[str, float]]) -> List[str]:
+def overlap_by_model(local: Dict[str, Dict[str, float]], online: Dict[str, Dict[str, float]]) -> List[str]:
     return sorted(set(local.keys()) & set(online.keys()))
 
 
-def write_model_comparison(local: Dict[str, Dict[str, float]],
-                           online: Dict[str, Dict[str, float]],
-                           models: List[str],
-                           out_csv: str) -> None:
+def write_model_comparison(
+    local: Dict[str, Dict[str, float]], online: Dict[str, Dict[str, float]], models: List[str], out_csv: str
+) -> None:
     fields = [
         "model",
-        "n_local", "n_online",
-        "em_rag_local", "em_rag_online", "em_rag_delta",
-        "f1_rag_local", "f1_rag_online", "f1_rag_delta",
-        "p50_rag_ms_local", "p50_rag_ms_online", "p50_rag_ms_delta",
-        "em_norag_local", "em_norag_online", "em_norag_delta",
-        "f1_norag_local", "f1_norag_online", "f1_norag_delta",
-        "p50_norag_ms_local", "p50_norag_ms_online", "p50_norag_ms_delta",
-        "f1_gain_avg_local", "f1_gain_avg_online", "f1_gain_avg_delta",
+        "n_local",
+        "n_online",
+        "em_rag_local",
+        "em_rag_online",
+        "em_rag_delta",
+        "f1_rag_local",
+        "f1_rag_online",
+        "f1_rag_delta",
+        "p50_rag_ms_local",
+        "p50_rag_ms_online",
+        "p50_rag_ms_delta",
+        "em_norag_local",
+        "em_norag_online",
+        "em_norag_delta",
+        "f1_norag_local",
+        "f1_norag_online",
+        "f1_norag_delta",
+        "p50_norag_ms_local",
+        "p50_norag_ms_online",
+        "p50_norag_ms_delta",
+        "f1_gain_avg_local",
+        "f1_gain_avg_online",
+        "f1_gain_avg_delta",
     ]
     with open(out_csv, "w", newline="", encoding="utf-8") as fd:
         wr = csv.writer(fd)
         wr.writerow(fields)
         for m in models:
-            l = local[m]; o = online[m]
+            local_rec = local[m]
+            online_rec = online[m]
+            em_rag_delta = online_rec.get("em_rag", 0.0) - local_rec.get("em_rag", 0.0)
+            f1_rag_delta = online_rec.get("f1_rag", 0.0) - local_rec.get("f1_rag", 0.0)
+            p50_rag_delta = int(online_rec.get("p50_rag_ms", 0) - local_rec.get("p50_rag_ms", 0))
+            em_nr_delta = online_rec.get("em_norag", 0.0) - local_rec.get("em_norag", 0.0)
+            f1_nr_delta = online_rec.get("f1_norag", 0.0) - local_rec.get("f1_norag", 0.0)
+            p50_nr_delta = int(online_rec.get("p50_norag_ms", 0) - local_rec.get("p50_norag_ms", 0))
+            f1_gain_delta = online_rec.get("f1_gain_avg", 0.0) - local_rec.get("f1_gain_avg", 0.0)
+
             row = [
                 m,
-                int(l.get("n", 0)), int(o.get("n", 0)),
-                l.get("em_rag", 0.0), o.get("em_rag", 0.0), o.get("em_rag", 0.0) - l.get("em_rag", 0.0),
-                l.get("f1_rag", 0.0), o.get("f1_rag", 0.0), o.get("f1_rag", 0.0) - l.get("f1_rag", 0.0),
-                int(l.get("p50_rag_ms", 0)), int(o.get("p50_rag_ms", 0)), int(o.get("p50_rag_ms", 0) - l.get("p50_rag_ms", 0)),
-                l.get("em_norag", 0.0), o.get("em_norag", 0.0), o.get("em_norag", 0.0) - l.get("em_norag", 0.0),
-                l.get("f1_norag", 0.0), o.get("f1_norag", 0.0), o.get("f1_norag", 0.0) - l.get("f1_norag", 0.0),
-                int(l.get("p50_norag_ms", 0)), int(o.get("p50_norag_ms", 0)), int(o.get("p50_norag_ms", 0) - l.get("p50_norag_ms", 0)),
-                l.get("f1_gain_avg", 0.0), o.get("f1_gain_avg", 0.0), o.get("f1_gain_avg", 0.0) - l.get("f1_gain_avg", 0.0),
+                int(local_rec.get("n", 0)),
+                int(online_rec.get("n", 0)),
+                local_rec.get("em_rag", 0.0),
+                online_rec.get("em_rag", 0.0),
+                em_rag_delta,
+                local_rec.get("f1_rag", 0.0),
+                online_rec.get("f1_rag", 0.0),
+                f1_rag_delta,
+                int(local_rec.get("p50_rag_ms", 0)),
+                int(online_rec.get("p50_rag_ms", 0)),
+                p50_rag_delta,
+                local_rec.get("em_norag", 0.0),
+                online_rec.get("em_norag", 0.0),
+                em_nr_delta,
+                local_rec.get("f1_norag", 0.0),
+                online_rec.get("f1_norag", 0.0),
+                f1_nr_delta,
+                int(local_rec.get("p50_norag_ms", 0)),
+                int(online_rec.get("p50_norag_ms", 0)),
+                p50_nr_delta,
+                local_rec.get("f1_gain_avg", 0.0),
+                online_rec.get("f1_gain_avg", 0.0),
+                f1_gain_delta,
             ]
             wr.writerow(row)
 
 
-def bar_two_series(labels: List[str], a: List[float], b: List[float],
-                   la: str, lb: str, title: str, out_path: str,
-                   ylim: Tuple[float, float] | None = None) -> None:
+def bar_two_series(
+    labels: List[str],
+    a: List[float],
+    b: List[float],
+    la: str,
+    lb: str,
+    title: str,
+    out_path: str,
+    ylim: Tuple[float, float] | None = None,
+) -> None:
     fig = plt.figure(figsize=(max(8, 0.6 * len(labels) + 4), 6))
     ax = fig.gca()
     idx = list(range(len(labels)))
     w = 0.4
-    ax.bar([i - w/2 for i in idx], a, w, label=la)
-    ax.bar([i + w/2 for i in idx], b, w, label=lb)
+    ax.bar([i - w / 2 for i in idx], a, w, label=la)
+    ax.bar([i + w / 2 for i in idx], b, w, label=lb)
     ax.set_xticks(idx)
     ax.set_xticklabels(labels, rotation=15, ha="right")
     ax.set_title(title)
@@ -240,9 +323,9 @@ def bar_two_series(labels: List[str], a: List[float], b: List[float],
     plt.close(fig)
 
 
-def plot_common_models(local: Dict[str, Dict[str, float]],
-                       online: Dict[str, Dict[str, float]],
-                       models: List[str], out_dir: str) -> List[str]:
+def plot_common_models(
+    local: Dict[str, Dict[str, float]], online: Dict[str, Dict[str, float]], models: List[str], out_dir: str
+) -> List[str]:
     if not models:
         return []
     # Collect series in model order
@@ -267,7 +350,8 @@ def plot_common_models(local: Dict[str, Dict[str, float]],
     bar_two_series(models, f1_rag_l, f1_rag_o, "Local", "Online", "F1 (RAG) — common models", out, ylim=(0, 1))
     outs.append(out)
     out = os.path.join(out_dir, "latency_p50_rag_common.png")
-    bar_two_series(models, p50_rag_l, p50_rag_o, "Local", "Online", "Latency p50 ms (RAG) — common models", out, ylim=None)
+    title_rag = "Latency p50 ms (RAG) — common models"
+    bar_two_series(models, p50_rag_l, p50_rag_o, "Local", "Online", title_rag, out, ylim=None)
     outs.append(out)
     out = os.path.join(out_dir, "em_norag_common.png")
     bar_two_series(models, em_nr_l, em_nr_o, "Local", "Online", "EM (No-RAG) — common models", out, ylim=(0, 1))
@@ -276,52 +360,99 @@ def plot_common_models(local: Dict[str, Dict[str, float]],
     bar_two_series(models, f1_nr_l, f1_nr_o, "Local", "Online", "F1 (No-RAG) — common models", out, ylim=(0, 1))
     outs.append(out)
     out = os.path.join(out_dir, "latency_p50_norag_common.png")
-    bar_two_series(models, p50_nr_l, p50_nr_o, "Local", "Online", "Latency p50 ms (No-RAG) — common models", out, ylim=None)
+    title_nr = "Latency p50 ms (No-RAG) — common models"
+    bar_two_series(models, p50_nr_l, p50_nr_o, "Local", "Online", title_nr, out, ylim=None)
     outs.append(out)
     return outs
 
 
 def plot_env_aggregates(s_local: Dict[str, float], s_online: Dict[str, float], out_dir: str) -> List[str]:
     outs = []
+
     def pair(a: float, b: float) -> Tuple[List[float], List[float]]:
         return [a], [b]
 
     out = os.path.join(out_dir, "env_em_rag.png")
-    bar_two_series(["env"], *pair(s_local["em_rag_wmean"], s_online["em_rag_wmean"]),
-                   "Local", "Online", "EM (RAG) — env-weighted mean", out, ylim=(0, 1))
+    bar_two_series(
+        ["env"],
+        *pair(s_local["em_rag_wmean"], s_online["em_rag_wmean"]),
+        "Local",
+        "Online",
+        "EM (RAG) — env-weighted mean",
+        out,
+        ylim=(0, 1),
+    )
     outs.append(out)
     out = os.path.join(out_dir, "env_f1_rag.png")
-    bar_two_series(["env"], *pair(s_local["f1_rag_wmean"], s_online["f1_rag_wmean"]),
-                   "Local", "Online", "F1 (RAG) — env-weighted mean", out, ylim=(0, 1))
+    bar_two_series(
+        ["env"],
+        *pair(s_local["f1_rag_wmean"], s_online["f1_rag_wmean"]),
+        "Local",
+        "Online",
+        "F1 (RAG) — env-weighted mean",
+        out,
+        ylim=(0, 1),
+    )
     outs.append(out)
     out = os.path.join(out_dir, "env_latency_p50_rag.png")
-    bar_two_series(["env"], *pair(s_local["p50_rag_ms_wmean"], s_online["p50_rag_ms_wmean"]),
-                   "Local", "Online", "Latency p50 ms (RAG) — weighted mean of per-model p50", out)
+    bar_two_series(
+        ["env"],
+        *pair(s_local["p50_rag_ms_wmean"], s_online["p50_rag_ms_wmean"]),
+        "Local",
+        "Online",
+        "Latency p50 ms (RAG) — weighted mean of per-model p50",
+        out,
+    )
     outs.append(out)
 
     out = os.path.join(out_dir, "env_em_norag.png")
-    bar_two_series(["env"], *pair(s_local["em_norag_wmean"], s_online["em_norag_wmean"]),
-                   "Local", "Online", "EM (No-RAG) — env-weighted mean", out, ylim=(0, 1))
+    bar_two_series(
+        ["env"],
+        *pair(s_local["em_norag_wmean"], s_online["em_norag_wmean"]),
+        "Local",
+        "Online",
+        "EM (No-RAG) — env-weighted mean",
+        out,
+        ylim=(0, 1),
+    )
     outs.append(out)
     out = os.path.join(out_dir, "env_f1_norag.png")
-    bar_two_series(["env"], *pair(s_local["f1_norag_wmean"], s_online["f1_norag_wmean"]),
-                   "Local", "Online", "F1 (No-RAG) — env-weighted mean", out, ylim=(0, 1))
+    bar_two_series(
+        ["env"],
+        *pair(s_local["f1_norag_wmean"], s_online["f1_norag_wmean"]),
+        "Local",
+        "Online",
+        "F1 (No-RAG) — env-weighted mean",
+        out,
+        ylim=(0, 1),
+    )
     outs.append(out)
     out = os.path.join(out_dir, "env_latency_p50_norag.png")
-    bar_two_series(["env"], *pair(s_local["p50_norag_ms_wmean"], s_online["p50_norag_ms_wmean"]),
-                   "Local", "Online", "Latency p50 ms (No-RAG) — weighted mean of per-model p50", out)
+    bar_two_series(
+        ["env"],
+        *pair(s_local["p50_norag_ms_wmean"], s_online["p50_norag_ms_wmean"]),
+        "Local",
+        "Online",
+        "Latency p50 ms (No-RAG) — weighted mean of per-model p50",
+        out,
+    )
     outs.append(out)
     return outs
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Compare local vs online eval results (CSV + plots)")
-    ap.add_argument("--local", default="runtime/evals_multi/model_summaries.csv",
-                    help="Path to local CSV produced by scripts/eval_models.py")
-    ap.add_argument("--online", default="runtime/evals_multi/model_summaries_online.csv",
-                    help="Path to online CSV produced by scripts/eval_models_online.py")
-    ap.add_argument("--out-dir", default="runtime/evals_multi",
-                    help="Output directory for comparison CSVs and plots")
+    ap.add_argument(
+        "--local",
+        default="runtime/evals_multi/model_summaries.csv",
+        help="Path to local CSV produced by scripts/eval_models.py",
+    )
+    ap.add_argument(
+        "--online",
+        default="runtime/evals_multi/model_summaries_online.csv",
+        help="Path to online CSV produced by scripts/eval_models_online.py",
+    )
+    ap.add_argument("--out-dir", default="runtime/evals_multi", help="Output directory for comparison CSVs and plots")
     args = ap.parse_args()
 
     ensure_dir(args.out_dir)
@@ -352,12 +483,15 @@ def main() -> None:
     print(" -", os.path.abspath(summary_csv))
     if models:
         print(" -", os.path.abspath(os.path.join(args.out_dir, "comparison_by_model.csv")))
-    for p in sorted([f for f in os.listdir(args.out_dir) if f.endswith(".png") and (
-            f.endswith("_common.png") or f.startswith("env_")
-        )]):
+    for p in sorted(
+        [
+            f
+            for f in os.listdir(args.out_dir)
+            if f.endswith(".png") and (f.endswith("_common.png") or f.startswith("env_"))
+        ]
+    ):
         print(" -", os.path.abspath(os.path.join(args.out_dir, p)))
 
 
 if __name__ == "__main__":
     main()
-

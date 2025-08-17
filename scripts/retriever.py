@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 import psycopg2
@@ -47,8 +47,6 @@ try:  # pinecone client is optional
     from pinecone import Pinecone
 except Exception:  # pragma: no cover - optional at runtime if pgvector only
     Pinecone = None  # type: ignore
-    
-
 
 
 # -------- Data model --------
@@ -187,10 +185,15 @@ class PineconeRetriever:
                 doc_id = md.get("doc_id") if md else None
                 if not text or title is None:
                     need_hydrate = True
-                hits.append(Hit(id=str(mid), doc_id=str(doc_id) if doc_id is not None else None,
-                                title=str(title) if title is not None else None,
-                                text=str(text) if text is not None else "",
-                                score=scores[i]))
+                hits.append(
+                    Hit(
+                        id=str(mid),
+                        doc_id=str(doc_id) if doc_id is not None else None,
+                        title=str(title) if title is not None else None,
+                        text=str(text) if text is not None else "",
+                        score=scores[i],
+                    )
+                )
             if need_hydrate:
                 ids = [h.id for h in hits]
                 scores2 = [h.score for h in hits]
@@ -216,13 +219,15 @@ class PineconeRetriever:
                 if not md:
                     hits.append(Hit(id=str(mid), doc_id=None, title=None, text="", score=float(score or 0.0)))
                 else:
-                    hits.append(Hit(
-                        id=str(mid),
-                        doc_id=str(md.get("doc_id")) if md and md.get("doc_id") is not None else None,
-                        title=str(md.get("title")) if md and md.get("title") is not None else None,
-                        text=str(md.get("text")) if md and md.get("text") is not None else "",
-                        score=float(score) if score is not None else 0.0,
-                    ))
+                    hits.append(
+                        Hit(
+                            id=str(mid),
+                            doc_id=str(md.get("doc_id")) if md and md.get("doc_id") is not None else None,
+                            title=str(md.get("title")) if md and md.get("title") is not None else None,
+                            text=str(md.get("text")) if md and md.get("text") is not None else "",
+                            score=float(score) if score is not None else 0.0,
+                        )
+                    )
             if any((not h.text) or (h.title is None) for h in hits):
                 ids = [h.id for h in hits]
                 scores = [h.score for h in hits]

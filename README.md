@@ -59,6 +59,14 @@ Quickstart
 2) Python dependencies
 ```bash
 pip install -r requirements.txt
+# Default Torch pin is CPU-friendly. For CUDA builds, follow
+# https://pytorch.org/get-started/locally/ and set the extra index URL
+# before install.
+```
+
+Alternatively with Make (creates venv at .venv):
+```bash
+make setup
 ```
 
 3) Download Hotpot slice
@@ -92,6 +100,16 @@ uvicorn scripts.api:app --reload --port 8000
 # Health
 curl http://127.0.0.1:8000/health
 ```
+
+Using Make:
+```bash
+make serve  # alias of `make api`
+```
+
+CI & Lint
+- A GitHub Actions workflow runs `ruff check`, `ruff format --check`, and `pytest -q` on push/PR.
+- See `.github/workflows/ci.yml`. Add a status badge in your GitHub README if desired:
+  `![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)`
 
 ---
 
@@ -141,6 +159,10 @@ EMBEDDING_BACKEND=pinecone RETRIEVER_BACKEND=pinecone \
 EMBEDDING_BACKEND=pinecone RETRIEVER_BACKEND=pinecone \
   uvicorn scripts.api:app --reload --port 8000
 ```
+- Note: When using `EMBEDDING_BACKEND=pinecone`, query embeddings currently
+  fall back to the local SentenceTransformer model unless you use Pinecone's
+  integrated text search path. This preserves compatibility with your chosen
+  model family; a direct query‑time Pinecone Inference path is a TODO.
 - Compare retrieval (local vs Pinecone) with plots/CSVs:
 ```bash
 python scripts/run_retrieval_compare.py \
@@ -358,6 +380,10 @@ Acknowledgments
 - HotpotQA dataset
 - pgvector, FastAPI, Ollama, SentenceTransformers, BGE‑M3
 
+Data & License
+- HotpotQA is used under its original license; please consult the dataset’s terms before redistribution.
+- This repository is licensed under MIT (see `LICENSE`).
+
 ---
 
 Developer shortcuts and compose
@@ -387,6 +413,9 @@ make pinecone-health
 Docker Compose
 - `docker-compose.yml` provides a `db` service using `pgvector/pgvector:pg16` with defaults
   matching `.env.example` (DB `ragdb`, user `rag`, password `rag`).
+ - Also includes an `api` service (uvicorn) that mounts this repo and installs
+   requirements on startup. Bring both up with `docker compose up -d db api` and
+   check health at `http://127.0.0.1:8000/health`.
 
 API response additions
 - `/answer` now includes `citations: [int]` (1-based indices of sources containing the
